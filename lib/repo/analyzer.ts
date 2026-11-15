@@ -36,12 +36,12 @@ const MANIFEST_FILENAMES = new Set([
   'cargo.toml',
 ]);
 
-function buildGitHubHeaders(): Record<string, string> {
+function buildGitHubHeaders(overrideToken?: string): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github+json',
     'User-Agent': 'SLASH-RepoUnifier/1.0',
   };
-  const token = process.env.GITHUB_TOKEN?.trim();
+  const token = overrideToken?.trim() || process.env.GITHUB_TOKEN?.trim();
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
@@ -181,7 +181,11 @@ const REPO_AI_SCHEMA = {
 
 export async function analyzeRepoPipeline(
   rawRepoInput: string,
-  options: { usePreset?: boolean; forceRefresh?: boolean } = {},
+  options: {
+    usePreset?: boolean;
+    forceRefresh?: boolean;
+    githubAccessToken?: string;
+  } = {},
 ): Promise<RepoIntelligenceReport> {
   const parsed = parseGitHubRepoUrl(rawRepoInput);
   if (!parsed) {
@@ -198,7 +202,7 @@ export async function analyzeRepoPipeline(
   }
 
   const cacheKey = `repo::${parsed.normalizedUrl}`;
-  if (!options.forceRefresh) {
+  if (!options.forceRefresh && !options.githubAccessToken) {
     const cached = await getCachedReport<RepoIntelligenceReport>(cacheKey);
     if (cached) {
       return {
@@ -209,7 +213,7 @@ export async function analyzeRepoPipeline(
     }
   }
 
-  const headers = buildGitHubHeaders();
+  const headers = buildGitHubHeaders(options.githubAccessToken);
   const apiBase = `https://api.github.com/repos/${parsed.owner}/${parsed.repo}`;
 
   const repoRes = await safeFetchPublic(
@@ -219,7 +223,7 @@ export async function analyzeRepoPipeline(
   );
   if (!repoRes.ok) {
     throw new Error(
-      `GitHub API returned HTTP ${repoRes.status} for ${parsed.fullName}. Verify the repository is public or configure GITHUB_TOKEN on the server.`,
+      `GitHub API returned HTTP ${repoRes.status} for ${parsed.fullName}. Verify the repository is public or connect GitHub OAuth / configure GITHUB_TOKEN.`,
     );
   }
 
@@ -231,6 +235,8 @@ export async function analyzeRepoPipeline(
     topics?: string[];
     default_branch?: string;
     size?: number;
+    private?: boolean;
+    license?: { spdx_id?: string; name?: string } | null;
   };
 
   const sizeCheck = checkGitHubRepoLimits(repoMeta.size);
@@ -290,10 +296,20 @@ export async function analyzeRepoPipeline(
   await Promise.all(
     manifestCandidates.map(async (entry) => {
       try {
-        const rawUrl = `https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${defaultBranch}/${entry.path}`;
+        const useAuthContentsApi = Boolean(repoMeta.private || options.githubAccessToken);
+        const manifestUrl = useAuthContentsApi
+          ? `${apiBase}/contents/${entry.path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(defaultBranch)}`
+          : `https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${defaultBranch}/${entry.path}`;
         const res = await safeFetchPublic(
-          rawUrl,
-          {},
+          manifestUrl,
+          useAuthContentsApi
+            ? {
+                headers: {
+                  ...headers,
+                  Accept: 'application/vnd.github.raw+json',
+                },
+              }
+            : {},
           { timeoutMs: 8000, maxRedirects: 3, maxBytes: REPO_LIMITS.maxManifestBytes },
         );
         if (!res.ok) return;
@@ -543,12 +559,21 @@ RULES:
     defaultBranch,
     primaryLanguage: repoMeta.language || 'Unknown',
     topics: repoMeta.topics || [],
+    licenseSpdx:
+      repoMeta.license?.spdx_id && repoMeta.license.spdx_id !== 'NOASSERTION'
+        ? repoMeta.license.spdx_id
+        : undefined,
+    isPrivate: Boolean(repoMeta.private),
     title: `${repoMeta.full_name || parsed.fullName} — Repository Intelligence`,
     summary,
     executiveOverview,
     analyzedAt: new Date().toISOString(),
     sourceMethod: 'github-api',
-    cacheStatus: options.forceRefresh ? 'bypassed' : 'miss',
+    cacheStatus: repoMeta.private
+      ? 'bypassed'
+      : options.forceRefresh
+        ? 'bypassed'
+        : 'miss',
     metrics: {
       filesCount,
       directoriesCount: dirsCount,
@@ -570,14 +595,19 @@ RULES:
     techStack,
     explainerScript,
     limitationsNote: truncationReason
-      ? `${truncationReason} Environment secrets, private branches, and runtime cloud infrastructure are not inspected.`
-      : 'Repository intelligence reflects public GitHub git tree paths, manifest files, and README context. Environment secrets, private branches, and runtime cloud infrastructure are not inspected.',
+      ? `${truncationReason} Environment secrets and runtime cloud infrastructure are not inspected.`
+      : repoMeta.private
+        ? 'Private repository scanned with user OAuth read-only token; report is excluded from shared server disk cache.'
+        : 'Repository intelligence reflects public GitHub git tree paths, manifest files, and README context. Environment secrets, private branches, and runtime cloud infrastructure are not inspected.',
     suggestedQuestions,
   };
 
-  const cachedAt = await setCachedReport(cacheKey, finalReport);
-  return {
-    ...finalReport,
-    cachedAt,
-  };
+  if (!repoMeta.private) {
+    const cachedAt = await setCachedReport(cacheKey, finalReport);
+    return {
+      ...finalReport,
+      cachedAt,
+    };
+  }
+  return finalReport;
 }

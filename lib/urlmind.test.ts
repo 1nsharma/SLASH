@@ -61,6 +61,41 @@ import {
   generateUnifiedMarkdownBlueprint,
   generateUnifiedMermaidDiagram,
 } from './graph/blueprintExport';
+import {
+  createSignedOAuthState,
+  decryptTokenPayload,
+  encryptTokenPayload,
+  getGitHubCallbackUrl,
+  toPublicGitHubAuthStatus,
+  verifySignedOAuthState,
+} from './security/tokenVault';
+import {
+  parseOpenApiSpecToArtifact,
+  SAMPLE_OPENAPI_SPEC,
+} from './connectors/openapi';
+import {
+  parseDatabaseSchemaText,
+  SAMPLE_DATABASE_SCHEMA,
+} from './connectors/database';
+import { parseDocumentOrConfigText } from './connectors/document';
+import { detectGraphConflicts } from './graph/unifier';
+import {
+  approveCompositionPlan,
+  buildDeterministicCompositionPlan,
+  generateUnifiedProjectBundle,
+} from './composer/engine';
+import { createZipArchive } from './composer/zip';
+import {
+  buildBusinessBlockArtifact,
+  findVerifiedBusinessBlock,
+  VERIFIED_BUSINESS_BLOCKS,
+} from './business/blocks';
+import {
+  classifyNodeBusinessZone,
+  detectMissingBusinessGaps,
+  groupNodesByBusinessZone,
+} from './business/zones';
+import { getAiRouterStatus } from './ai/router';
 
 test('normalizeAndValidateUrl rejects empty, invalid, local, private, metadata, and credentialed URLs', () => {
   assert.equal(normalizeAndValidateUrl('').valid, false);
@@ -505,7 +540,7 @@ test('Shared Graph Engine preserves entityType, semanticRelation, verificationSt
     repoReports: [truncatedRepo],
   });
 
-  assert.equal(unified.schemaVersion, '1.0');
+  assert.equal(unified.schemaVersion, '2.0');
   assert.ok(unified.truncationWarnings?.length === 1);
   assert.ok(unified.truncationWarnings?.[0].includes('vercel/ai'));
   assert.ok((unified.auditLog?.length ?? 0) >= 1);
@@ -524,7 +559,7 @@ test('Shared Graph Engine preserves entityType, semanticRelation, verificationSt
 
   const jsonStr = generateUnifiedBlueprintJson(unified);
   const parsed = JSON.parse(jsonStr);
-  assert.equal(parsed.schemaVersion, '1.0');
+  assert.equal(parsed.schemaVersion, '2.0');
   assert.equal(parsed.platform, 'SLASH — Repo Unifier');
   assert.equal(parsed.nodes.length, unified.nodes.length);
   assert.equal(parsed.edges.length, unified.edges.length);
@@ -554,5 +589,330 @@ test('POST /api/repo/analyze returns { repoReport, report } contract for preset 
   assert.equal(json.repoReport.fullName, 'vercel/ai');
   assert.equal(json.report.fullName, 'vercel/ai');
 });
+
+test('TokenVault encrypts/decrypts GitHub OAuth tokens, verifies HMAC state, and strips tokens from public status', () => {
+  const sealed = encryptTokenPayload({
+    accessToken: 'gho_super_secret_token_value',
+    login: 'octocat',
+    avatarUrl: 'https://avatars.githubusercontent.com/u/1?v=4',
+    scopes: ['repo', 'read:user'],
+    createdAt: '2026-11-15T00:00:00.000Z',
+  });
+
+  assert.ok(!sealed.includes('gho_super_secret_token_value'));
+
+  const decrypted = decryptTokenPayload(sealed);
+  assert.ok(decrypted);
+  assert.equal(decrypted.login, 'octocat');
+  assert.equal(decrypted.accessToken, 'gho_super_secret_token_value');
+  assert.equal(decryptTokenPayload('invalid.payload'), null);
+
+  const state = createSignedOAuthState();
+  assert.equal(verifySignedOAuthState(state, state), true);
+  assert.equal(verifySignedOAuthState(state, 'tampered'), false);
+  assert.equal(verifySignedOAuthState(state, state, -1), false);
+
+  const publicStatus = toPublicGitHubAuthStatus(decrypted);
+  assert.equal(publicStatus.authenticated, true);
+  assert.equal(publicStatus.login, 'octocat');
+  assert.ok(publicStatus.callbackUrl.endsWith('/api/auth/github/callback'));
+  assert.equal(
+    JSON.stringify(publicStatus).includes('gho_super_secret_token_value'),
+    false,
+  );
+  assert.ok(getGitHubCallbackUrl().endsWith('/api/auth/github/callback'));
+});
+
+test('Multi-source connectors parse OpenAPI, Prisma/SQL schemas, and redact secret values in Docs/Config', () => {
+  const openApiArtifact = parseOpenApiSpecToArtifact({
+    rawJson: SAMPLE_OPENAPI_SPEC,
+    locator: 'inline://openapi.json',
+  });
+  assert.equal(openApiArtifact.kind, 'openapi_spec');
+  assert.equal(openApiArtifact.licenseSpdx, 'MIT');
+  assert.ok((openApiArtifact.endpoints?.length ?? 0) >= 3);
+  assert.ok(openApiArtifact.nodes.some((n) => n.entityType === 'webhook'));
+
+  const prismaArtifact = parseDatabaseSchemaText({
+    schemaText: SAMPLE_DATABASE_SCHEMA,
+  });
+  assert.equal(prismaArtifact.kind, 'database_schema');
+  assert.equal(prismaArtifact.tables?.length, 3);
+  assert.ok(prismaArtifact.envVarsRequired.includes('DATABASE_URL'));
+
+  const sqlArtifact = parseDatabaseSchemaText({
+    schemaText: `
+      CREATE TABLE accounts (
+        id UUID PRIMARY KEY,
+        email TEXT NOT NULL
+      );
+      CREATE TABLE invoices (
+        id UUID PRIMARY KEY,
+        account_id UUID REFERENCES accounts(id)
+      );
+    `,
+  });
+  assert.equal(sqlArtifact.tables?.length, 2);
+
+  const docArtifact = parseDocumentOrConfigText({
+    rawText: `# Architecture Spec\nNEXTAUTH_SECRET=super_sensitive_live_value_123\nDATABASE_URL=postgres://admin:pass@db/prod`,
+  });
+  assert.equal(docArtifact.kind, 'document_pdf');
+  assert.deepEqual(docArtifact.envVarsRequired, ['NEXTAUTH_SECRET', 'DATABASE_URL']);
+  assert.equal(
+    JSON.stringify(docArtifact).includes('super_sensitive_live_value_123'),
+    false,
+  );
+});
+
+test('Universal Graph detects SPDX license, auth scheme, and runtime conflicts and links connectors', () => {
+  const openApiArtifact = parseOpenApiSpecToArtifact({
+    rawJson: SAMPLE_OPENAPI_SPEC,
+    locator: 'inline://openapi.json',
+  });
+  const dbArtifact = parseDatabaseSchemaText({
+    schemaText: SAMPLE_DATABASE_SCHEMA,
+  });
+  const docArtifact = parseDocumentOrConfigText({
+    rawText: `NEXTAUTH_SECRET=placeholder\nCLERK_SECRET_KEY=placeholder`,
+  });
+
+  const gplRepo = {
+    ...REPO_PRESETS['https://github.com/vercel/ai'],
+    id: 'repo-gpl',
+    fullName: 'acme/gpl-backend',
+    licenseSpdx: 'GPL-3.0',
+    primaryLanguage: 'Python',
+    manifests: [
+      {
+        path: 'requirements.txt',
+        ecosystem: 'python' as const,
+        dependencies: ['fastapi', 'uvicorn'],
+        scripts: [],
+      },
+    ],
+  };
+
+  const mitRepo = {
+    ...REPO_PRESETS['https://github.com/vercel/ai'],
+    id: 'repo-mit',
+    fullName: 'acme/mit-frontend',
+    licenseSpdx: 'MIT',
+    primaryLanguage: 'TypeScript',
+  };
+
+  const conflicts = detectGraphConflicts({
+    urlReports: [],
+    repoReports: [gplRepo, mitRepo],
+    connectorArtifacts: [openApiArtifact, dbArtifact, docArtifact],
+  });
+
+  assert.ok(conflicts.some((c) => c.category === 'license'));
+  assert.ok(conflicts.some((c) => c.category === 'runtime'));
+
+  const unified = unifyIntelligenceSources({
+    urlReports: [SHOWCASE_PRESETS['https://github.com/vercel/ai']],
+    repoReports: [gplRepo, mitRepo],
+    connectorArtifacts: [openApiArtifact, dbArtifact],
+  });
+
+  assert.equal(unified.schemaVersion, '2.0');
+  assert.ok((unified.conflicts?.length ?? 0) >= 2);
+  assert.ok(unified.nodes.some((n) => n.entityType === 'database_schema'));
+  assert.ok(unified.edges.some((e) => e.semanticRelation === 'CONFLICTS_WITH'));
+});
+
+test('4-stage AI Project Composer enforces approval gate, validates static bundle, and emits valid PKZIP', async () => {
+  const openApiArtifact = parseOpenApiSpecToArtifact({
+    rawJson: SAMPLE_OPENAPI_SPEC,
+    locator: 'inline://openapi.json',
+  });
+  const dbArtifact = parseDatabaseSchemaText({
+    schemaText: SAMPLE_DATABASE_SCHEMA,
+  });
+  const unified = unifyIntelligenceSources({
+    urlReports: [SHOWCASE_PRESETS['https://github.com/vercel/ai']],
+    repoReports: [REPO_PRESETS['https://github.com/vercel/ai']],
+    connectorArtifacts: [openApiArtifact, dbArtifact],
+  });
+
+  const draftPlan = buildDeterministicCompositionPlan(
+    unified,
+    'Unify frontend docs, AI SDK repo, billing OpenAPI, and Prisma schema into one SaaS portal',
+  );
+  assert.equal(draftPlan.approvalStatus, 'draft');
+  assert.ok(draftPlan.componentMappings.length >= 4);
+
+  // Pure function must reject unapproved plan
+  assert.throws(() => generateUnifiedProjectBundle(unified, draftPlan));
+
+  // API route must return HTTP 403 for unapproved plan
+  const { POST: generatePost } = await import('../app/api/composer/generate/route');
+  const blockedReq = new Request('http://localhost:3000/api/composer/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project: unified, plan: draftPlan }),
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const blockedRes = await generatePost(blockedReq as any);
+  assert.equal(blockedRes.status, 403);
+
+  const approvedPlan = approveCompositionPlan(draftPlan);
+  assert.equal(approvedPlan.approvalStatus, 'approved');
+
+  const bundle = generateUnifiedProjectBundle(unified, approvedPlan);
+  assert.ok(bundle.files.some((f) => f.path === 'package.json'));
+  assert.ok(bundle.files.some((f) => f.path === '.env.example'));
+  assert.ok(bundle.files.some((f) => f.path === 'src/adapters/api-client.ts'));
+  assert.ok(bundle.files.some((f) => f.path === 'THIRD_PARTY_LICENSES.md'));
+  assert.ok(
+    bundle.checks.every((c) => c.status === 'passed' || c.status === 'warning'),
+  );
+  // Verify no comma between class methods in generated TypeScript client
+  const apiClient = bundle.files.find((f) => f.path === 'src/adapters/api-client.ts');
+  assert.ok(apiClient);
+  assert.equal(apiClient.content.includes('},\n  /**'), false);
+
+  const zipBytes = createZipArchive(
+    bundle.files.map((f) => ({ path: f.path, content: f.content })),
+  );
+  // PKZIP Local File Header signature: PK\x03\x04
+  assert.equal(zipBytes[0], 0x50);
+  assert.equal(zipBytes[1], 0x4b);
+  assert.equal(zipBytes[2], 0x03);
+  assert.equal(zipBytes[3], 0x04);
+});
+
+test('Business OS Zones, Auto-Bridging missing gap detection, and Verified Business Blocks snap cleanly', () => {
+  assert.equal(VERIFIED_BUSINESS_BLOCKS.length, 6);
+  assert.ok(findVerifiedBusinessBlock('clerk-auth'));
+  assert.ok(findVerifiedBusinessBlock('stripe-payments'));
+  assert.ok(findVerifiedBusinessBlock('razorpay-payments'));
+
+  const urlReport = SHOWCASE_PRESETS['https://nextjs.org/docs'];
+  const repoReport = REPO_PRESETS['https://github.com/vercel/ai'];
+  const initialUnified = unifyIntelligenceSources({
+    urlReports: [urlReport],
+    repoReports: [repoReport],
+  });
+
+  // Sources and nodes must carry businessZone tags
+  assert.ok(initialUnified.sources.every((s) => Boolean(s.businessZone)));
+  assert.ok(initialUnified.nodes.every((n) => Boolean(n.businessZone)));
+
+  const grouped = groupNodesByBusinessZone(initialUnified.nodes);
+  assert.ok(grouped.frontend.length > 0 || grouped.brain.length > 0);
+  assert.equal(
+    classifyNodeBusinessZone({
+      layer: 'external',
+      category: 'Payments',
+      label: 'Stripe Checkout',
+      description: 'Subscription billing',
+    }),
+    'operations',
+  );
+
+  const initialGaps = detectMissingBusinessGaps(initialUnified);
+  assert.ok(initialGaps.some((g) => g.missingCapability === 'auth'));
+  assert.ok(initialGaps.some((g) => g.missingCapability === 'payments'));
+  assert.ok(initialGaps.some((g) => g.missingCapability === 'database'));
+  assert.ok(initialGaps.some((g) => g.missingCapability === 'automation'));
+
+  // Attach all 4 capabilities via Verified Business Blocks and confirm gaps drop to 0
+  const clerkBlock = buildBusinessBlockArtifact('clerk-auth');
+  const stripeBlock = buildBusinessBlockArtifact('stripe-payments');
+  const memoryBlock = buildBusinessBlockArtifact('shared-memory-pgvector');
+  const n8nBlock = buildBusinessBlockArtifact('n8n-automation');
+
+  const bridged = unifyIntelligenceSources({
+    urlReports: [urlReport],
+    repoReports: [repoReport],
+    connectorArtifacts: [clerkBlock, stripeBlock, memoryBlock, n8nBlock],
+  });
+  const remainingGaps = detectMissingBusinessGaps(bridged);
+  assert.equal(remainingGaps.length, 0);
+});
+
+test('Copilot proposals support add_business_block and fill_business_gap and Composer emits Run Business Execution Pack', () => {
+  const proposals = normalizeCopilotProposals([
+    {
+      id: 'b1',
+      type: 'fill_business_gap',
+      title: 'Add Clerk Authentication',
+      target: 'clerk-auth',
+      confidence: 'detected',
+      evidence: 'Auto-Bridging detected missing auth layer',
+      blockId: 'clerk-auth',
+      businessZone: 'operations',
+    },
+    {
+      id: 'b2',
+      type: 'add_business_block',
+      title: 'Add Stripe Checkout & Webhooks',
+      target: 'stripe-payments',
+      confidence: 'inferred',
+      evidence: 'Proposed billing bridge',
+      blockId: 'stripe-payments',
+      businessZone: 'operations',
+    },
+  ]);
+
+  assert.equal(proposals.length, 2);
+  assert.equal(proposals[0].status, 'pending');
+  assert.equal(proposals[0].payload?.blockId, 'clerk-auth');
+  assert.equal(proposals[0].payload?.businessZone, 'operations');
+  assert.equal(proposals[1].payload?.blockId, 'stripe-payments');
+
+  const aiStatus = getAiRouterStatus();
+  assert.ok(
+    ['gemini', 'ollama', 'deterministic'].includes(aiStatus.activeDefault),
+  );
+  assert.equal(typeof aiStatus.ollamaModel, 'string');
+
+  const unified = unifyIntelligenceSources({
+    urlReports: [SHOWCASE_PRESETS['https://nextjs.org/docs']],
+    repoReports: [REPO_PRESETS['https://github.com/vercel/ai']],
+    connectorArtifacts: [
+      buildBusinessBlockArtifact('stripe-payments'),
+      buildBusinessBlockArtifact('n8n-automation'),
+    ],
+  });
+
+  const plan = approveCompositionPlan(
+    buildDeterministicCompositionPlan(
+      unified,
+      'Run full AI SaaS business with gateway, billing, and automation',
+    ),
+  );
+  const bundle = generateUnifiedProjectBundle(unified, plan);
+
+  const gatewayRoutes = bundle.files.find(
+    (f) => f.path === 'src/gateway/routes.json',
+  );
+  const gatewayRouteTs = bundle.files.find(
+    (f) => f.path === 'src/app/api/gateway/[...slug]/route.ts',
+  );
+  const bridgeEnv = bundle.files.find(
+    (f) => f.path === '.env.bridge.example',
+  );
+  const composeFile = bundle.files.find(
+    (f) => f.path === 'docker-compose.yml',
+  );
+
+  assert.ok(gatewayRoutes);
+  assert.ok(gatewayRouteTs);
+  assert.ok(bridgeEnv);
+  assert.ok(composeFile);
+
+  const parsedRoutes = JSON.parse(gatewayRoutes.content);
+  assert.ok(parsedRoutes.routes.length >= 3);
+  assert.ok(bridgeEnv.content.includes('SLASH_GATEWAY_URL='));
+  assert.ok(composeFile.content.includes('pgvector/pgvector:pg17'));
+  assert.ok(composeFile.content.includes('n8n_ops:'));
+  assert.equal(bundle.checks.length, 5);
+  assert.ok(bundle.checks.every((c) => c.status === 'passed'));
+});
+
+
 
 

@@ -1,5 +1,11 @@
+import {
+  classifyNodeBusinessZone,
+  classifySourceBusinessZone,
+} from '../business/zones';
 import type {
+  ConnectedConnectorArtifact,
   GraphAuditEntry,
+  GraphConflict,
   GraphSourceRef,
   IntelligenceEdge,
   IntelligenceNode,
@@ -88,15 +94,138 @@ function mapSemanticRelation(edge: IntelligenceEdge): SharedRelationVerb {
   }
 }
 
+export function detectGraphConflicts(params: {
+  urlReports: UrlIntelligenceReport[];
+  repoReports: RepoIntelligenceReport[];
+  connectorArtifacts: ConnectedConnectorArtifact[];
+}): GraphConflict[] {
+  const conflicts: GraphConflict[] = [];
+
+  // 1. SPDX License Compatibility Check
+  const licenses = new Map<string, string[]>();
+  const addLicense = (spdx: string | undefined, sourceId: string) => {
+    if (!spdx) return;
+    const norm = spdx.trim().toUpperCase();
+    const list = licenses.get(norm) ?? [];
+    list.push(sourceId);
+    licenses.set(norm, list);
+  };
+  params.repoReports.forEach((r) => addLicense(r.licenseSpdx, r.id));
+  params.connectorArtifacts.forEach((c) => addLicense(c.licenseSpdx, c.id));
+
+  const copyleft = Array.from(licenses.keys()).filter((l) =>
+    /GPL|AGPL|EUPL/.test(l),
+  );
+  const permissive = Array.from(licenses.keys()).filter((l) =>
+    /MIT|APACHE|BSD|ISC/.test(l),
+  );
+  if (copyleft.length > 0 && permissive.length > 0) {
+    conflicts.push({
+      id: 'conflict-license-copyleft',
+      severity: 'high',
+      category: 'license',
+      title: `License compatibility gate: ${copyleft.join('/')} mixed with ${permissive.join('/')}`,
+      description:
+        'Combining copyleft modules directly into a single bundle triggers viral license obligations across the unified build.',
+      involvedSourceIds: [
+        ...copyleft.flatMap((l) => licenses.get(l) ?? []),
+        ...permissive.flatMap((l) => licenses.get(l) ?? []),
+      ],
+      resolutionOptions: [
+        'Isolate copyleft module as an external microservice over HTTP',
+        'Publish unified project under compatible copyleft license',
+        'Exclude copyleft dependency from generated bundle',
+      ],
+      selectedResolution:
+        'Isolate copyleft module as an external microservice over HTTP',
+    });
+  }
+
+  // 2. Auth Provider Collision Check
+  const authSignals = new Map<string, string[]>();
+  const recordAuth = (name: string, id: string) => {
+    const list = authSignals.get(name) ?? [];
+    if (!list.includes(id)) list.push(id);
+    authSignals.set(name, list);
+  };
+
+  for (const rep of params.repoReports) {
+    for (const m of rep.manifests) {
+      for (const dep of [...(m.dependencies ?? []), ...(m.devDependencies ?? [])]) {
+        const lower = dep.toLowerCase();
+        if (lower.includes('next-auth')) recordAuth('NextAuth', rep.id);
+        if (lower.includes('clerk')) recordAuth('Clerk', rep.id);
+        if (lower.includes('firebase')) recordAuth('Firebase Auth', rep.id);
+      }
+    }
+  }
+  for (const conn of params.connectorArtifacts) {
+    if (conn.authScheme) recordAuth(conn.authScheme, conn.id);
+  }
+
+  if (authSignals.size > 1) {
+    const names = Array.from(authSignals.keys());
+    conflicts.push({
+      id: 'conflict-auth-collision',
+      severity: 'medium',
+      category: 'auth',
+      title: `Multiple authentication schemes detected (${names.join(' vs. ')})`,
+      description:
+        'Connected resources declare more than one authentication mechanism; a unified auth bridge adapter is required to share sessions.',
+      involvedSourceIds: Array.from(
+        new Set(Array.from(authSignals.values()).flat()),
+      ),
+      resolutionOptions: [
+        `Standardize UI session on ${names[0]} and issue server-side service tokens for downstream APIs`,
+        'Generate unified AuthBridge middleware normalizing user claims',
+      ],
+      selectedResolution:
+        'Generate unified AuthBridge middleware normalizing user claims',
+    });
+  }
+
+  // 3. Multi-Runtime Bridge Check
+  const runtimes = new Set<string>();
+  params.repoReports.forEach((r) => {
+    const lang = r.primaryLanguage.toLowerCase();
+    if (lang.includes('python')) runtimes.add('Python');
+    if (lang.includes('typescript') || lang.includes('javascript'))
+      runtimes.add('Node.js/TypeScript');
+    if (lang === 'go') runtimes.add('Go');
+    if (lang === 'rust') runtimes.add('Rust');
+  });
+  if (runtimes.size > 1) {
+    const rtList = Array.from(runtimes);
+    conflicts.push({
+      id: 'conflict-multi-runtime',
+      severity: 'info',
+      category: 'runtime',
+      title: `Cross-runtime composition required (${rtList.join(' + ')})`,
+      description:
+        'Sources span multiple execution runtimes. Compose via typed REST/OpenAPI HTTP adapter and containerized services.',
+      involvedSourceIds: params.repoReports.map((r) => r.id),
+      resolutionOptions: [
+        'Generate typed TypeScript fetch adapter + Docker Compose multi-service topology',
+      ],
+      selectedResolution:
+        'Generate typed TypeScript fetch adapter + Docker Compose multi-service topology',
+    });
+  }
+
+  return conflicts;
+}
+
 export function unifyIntelligenceSources(params: {
   urlReports?: UrlIntelligenceReport[];
   repoReports?: RepoIntelligenceReport[];
+  connectorArtifacts?: ConnectedConnectorArtifact[];
   title?: string;
   aiSynthesis?: string;
   auditLog?: GraphAuditEntry[];
 }): UnifiedGraphProject {
   const urlReports = params.urlReports ?? [];
   const repoReports = params.repoReports ?? [];
+  const connectorArtifacts = params.connectorArtifacts ?? [];
 
   const sources: UnifiedSourceSummary[] = [];
   const unifiedNodes: IntelligenceNode[] = [];
@@ -105,6 +234,7 @@ export function unifyIntelligenceSources(params: {
 
   const urlNodeLookupByReport = new Map<string, Map<string, IntelligenceNode>>();
   const repoNodeLookupByReport = new Map<string, Map<string, IntelligenceNode>>();
+  const connNodeLookupByArtifact = new Map<string, Map<string, IntelligenceNode>>();
 
   // 1. Ingest URLMIND Reports
   urlReports.forEach((report, idx) => {
@@ -118,24 +248,30 @@ export function unifyIntelligenceSources(params: {
       urlOrPath: report.normalizedUrl,
     };
 
-    sources.push({
+    const urlSummaryDraft = {
       id: report.id,
-      kind: 'url',
+      kind: 'url' as const,
       label: report.domain,
       url: report.normalizedUrl,
       nodeCount: report.nodes.length,
       detectedCount: report.nodes.filter((n) => n.confidence === 'detected').length,
       categoryOrLanguage: report.category,
+    };
+    sources.push({
+      ...urlSummaryDraft,
+      businessZone: classifySourceBusinessZone(urlSummaryDraft),
     });
 
     for (const node of report.nodes) {
+      const entityType = inferSharedEntityType(node, 'url', report.category);
       const namespaced: IntelligenceNode = {
         ...node,
         id: `${prefix}${node.id}`,
         sourceEngine: 'urlmind',
         sourceId: report.id,
         sourceLabel: report.domain,
-        entityType: inferSharedEntityType(node, 'url', report.category),
+        entityType,
+        businessZone: classifyNodeBusinessZone({ ...node, entityType }, 'url'),
         verificationStatus:
           node.verificationStatus ??
           inferVerificationStatus(node.confidence, isRestricted),
@@ -182,24 +318,34 @@ export function unifyIntelligenceSources(params: {
       );
     }
 
-    sources.push({
+    const repoSummaryDraft = {
       id: report.id,
-      kind: 'repo',
+      kind: 'repo' as const,
+      connectorKind: (report.isPrivate
+        ? 'github_private_repo'
+        : 'github_public_repo') as UnifiedSourceSummary['connectorKind'],
       label: report.fullName,
       url: report.normalizedUrl,
       nodeCount: report.nodes.length,
       detectedCount: report.nodes.filter((n) => n.confidence === 'detected').length,
       categoryOrLanguage: report.primaryLanguage,
+      licenseSpdx: report.licenseSpdx,
+    };
+    sources.push({
+      ...repoSummaryDraft,
+      businessZone: classifySourceBusinessZone(repoSummaryDraft),
     });
 
     for (const node of report.nodes) {
+      const entityType = inferSharedEntityType(node, 'repo');
       const namespaced: IntelligenceNode = {
         ...node,
         id: `${prefix}${node.id}`,
         sourceEngine: 'repo',
         sourceId: report.id,
         sourceLabel: report.fullName,
-        entityType: inferSharedEntityType(node, 'repo'),
+        entityType,
+        businessZone: classifyNodeBusinessZone({ ...node, entityType }, 'repo'),
         verificationStatus:
           node.verificationStatus ?? inferVerificationStatus(node.confidence),
         sources: node.sources?.length ? node.sources : [sourceRef],
@@ -225,6 +371,80 @@ export function unifyIntelligenceSources(params: {
     }
 
     repoNodeLookupByReport.set(report.id, idMap);
+  });
+
+  // 2b. Ingest Multi-Source Connector Artifacts (OpenAPI, DB Schema, Docs/Config)
+  connectorArtifacts.forEach((artifact, idx) => {
+    const prefix = `c${idx + 1}__`;
+    const idMap = new Map<string, IntelligenceNode>();
+    const sourceRef: GraphSourceRef = {
+      engine: 'connector',
+      sourceId: artifact.id,
+      sourceLabel: artifact.label,
+      urlOrPath: artifact.locator,
+    };
+
+    const connSummaryDraft = {
+      id: artifact.id,
+      kind: 'connector' as const,
+      connectorKind: artifact.kind,
+      businessZone: artifact.businessZone,
+      label: artifact.label,
+      url: artifact.locator,
+      nodeCount: artifact.nodes.length,
+      detectedCount: artifact.nodes.filter((n) => n.confidence === 'detected').length,
+      categoryOrLanguage:
+        artifact.kind === 'openapi_spec' || artifact.kind === 'webhook_endpoint'
+          ? 'OpenAPI'
+          : artifact.kind === 'database_schema'
+            ? artifact.runtime || 'Database'
+            : 'Config',
+      licenseSpdx: artifact.licenseSpdx,
+      authScheme: artifact.authScheme,
+    };
+    sources.push({
+      ...connSummaryDraft,
+      businessZone: classifySourceBusinessZone(connSummaryDraft),
+    });
+
+    for (const node of artifact.nodes) {
+      const entityType = node.entityType || 'integration';
+      const namespaced: IntelligenceNode = {
+        ...node,
+        id: `${prefix}${node.id}`,
+        sourceEngine: 'connector',
+        sourceId: artifact.id,
+        sourceLabel: artifact.label,
+        entityType,
+        businessZone:
+          node.businessZone ??
+          artifact.businessZone ??
+          classifyNodeBusinessZone({ ...node, entityType }, 'connector'),
+        verificationStatus:
+          node.verificationStatus ?? inferVerificationStatus(node.confidence),
+        sources: node.sources?.length ? node.sources : [sourceRef],
+      };
+      unifiedNodes.push(namespaced);
+      idMap.set(node.id, namespaced);
+    }
+
+    for (const edge of artifact.edges) {
+      if (idMap.has(edge.source) && idMap.has(edge.target)) {
+        unifiedEdges.push({
+          ...edge,
+          id: `${prefix}${edge.id}`,
+          source: `${prefix}${edge.source}`,
+          target: `${prefix}${edge.target}`,
+          sourceEngine: 'connector',
+          semanticRelation: mapSemanticRelation(edge),
+          verificationStatus:
+            edge.verificationStatus ?? inferVerificationStatus(edge.confidence),
+          sources: edge.sources?.length ? edge.sources : [sourceRef],
+        });
+      }
+    }
+
+    connNodeLookupByArtifact.set(artifact.id, idMap);
   });
 
   // 3. Discover Evidence-Backed Cross-Engine Relationships
@@ -299,8 +519,8 @@ export function unifyIntelligenceSources(params: {
       );
       const repoManifestDeps = new Set(
         repoRep.manifests.flatMap((m) => [
-          ...m.dependencies.map((d) => d.toLowerCase()),
-          ...m.devDependencies.map((d) => d.toLowerCase()),
+          ...(m.dependencies ?? []).map((d) => d.toLowerCase()),
+          ...(m.devDependencies ?? []).map((d) => d.toLowerCase()),
         ]),
       );
 
@@ -420,13 +640,140 @@ export function unifyIntelligenceSources(params: {
     }
   }
 
+  // 4b. Cross-link Connector Artifacts (OpenAPI endpoints, DB schemas) with Repos & URLs
+  for (const artifact of connectorArtifacts) {
+    const connNodes = Array.from(
+      connNodeLookupByArtifact.get(artifact.id)?.values() ?? [],
+    );
+    const connEntry = connNodes[0];
+    if (!connEntry) continue;
+    const connRef: GraphSourceRef = {
+      engine: 'connector',
+      sourceId: artifact.id,
+      sourceLabel: artifact.label,
+      urlOrPath: artifact.locator,
+    };
+
+    for (const repoRep of repoReports) {
+      const repoNodes = Array.from(
+        repoNodeLookupByReport.get(repoRep.id)?.values() ?? [],
+      );
+      const repoEntry = repoNodes.find((n) => n.layer === 'entry') || repoNodes[0];
+      if (!repoEntry) continue;
+      const repoRef: GraphSourceRef = {
+        engine: 'repo',
+        sourceId: repoRep.id,
+        sourceLabel: repoRep.fullName,
+        urlOrPath: repoRep.normalizedUrl,
+      };
+
+      if (
+        artifact.kind === 'openapi_spec' ||
+        artifact.kind === 'webhook_endpoint'
+      ) {
+        const repoApiNode =
+          repoNodes.find((n) => n.entityType === 'api' || n.layer === 'logic') ||
+          repoEntry;
+        addUnifiedEdge({
+          id: `unified-conn-api-${repoApiNode.id}-${connEntry.id}`,
+          source: repoApiNode.id,
+          target: connEntry.id,
+          label: 'consumes / implements API contract',
+          relationshipType: 'dataflow',
+          semanticRelation: 'CALLS',
+          confidence: 'inferred',
+          verificationStatus: 'unverified',
+          evidence: `Cross-source link connecting ${repoRep.fullName} with ${artifact.label}`,
+          sourceEngine: 'unified',
+          sources: [repoRef, connRef],
+        });
+      } else if (artifact.kind === 'database_schema') {
+        const repoLogic =
+          repoNodes.find((n) => n.layer === 'logic') || repoEntry;
+        addUnifiedEdge({
+          id: `unified-conn-db-${repoLogic.id}-${connEntry.id}`,
+          source: repoLogic.id,
+          target: connEntry.id,
+          label: 'persists to schema',
+          relationshipType: 'dataflow',
+          semanticRelation: 'READS_FROM',
+          confidence: 'inferred',
+          verificationStatus: 'unverified',
+          evidence: `Backend module ${repoRep.fullName} connects to ${artifact.label}`,
+          sourceEngine: 'unified',
+          sources: [repoRef, connRef],
+        });
+      } else {
+        addUnifiedEdge({
+          id: `unified-conn-doc-${connEntry.id}-${repoEntry.id}`,
+          source: connEntry.id,
+          target: repoEntry.id,
+          label: 'configures environment',
+          relationshipType: 'reference',
+          semanticRelation: 'DOCUMENTS',
+          confidence: 'detected',
+          verificationStatus: 'verified',
+          evidence: `Configuration spec ${artifact.label} references variables for ${repoRep.fullName}`,
+          sourceEngine: 'unified',
+          sources: [connRef, repoRef],
+        });
+      }
+    }
+  }
+
+  const conflicts = detectGraphConflicts({
+    urlReports,
+    repoReports,
+    connectorArtifacts,
+  });
+
+  // 4c. Materialize high/medium conflict edges directly in the shared graph
+  for (const conflict of conflicts) {
+    if (conflict.severity === 'info') continue;
+    const involvedEntryNodes: IntelligenceNode[] = [];
+    for (const srcId of conflict.involvedSourceIds) {
+      const map =
+        repoNodeLookupByReport.get(srcId) ||
+        connNodeLookupByArtifact.get(srcId) ||
+        urlNodeLookupByReport.get(srcId);
+      const list = Array.from(map?.values() ?? []);
+      const entry = list.find((n) => n.layer === 'entry') || list[0];
+      if (entry && !involvedEntryNodes.some((n) => n.id === entry.id)) {
+        involvedEntryNodes.push(entry);
+      }
+    }
+    if (involvedEntryNodes.length >= 2) {
+      addUnifiedEdge({
+        id: `unified-${conflict.id}-${involvedEntryNodes[0].id}-${involvedEntryNodes[1].id}`,
+        source: involvedEntryNodes[0].id,
+        target: involvedEntryNodes[1].id,
+        label:
+          conflict.category === 'license'
+            ? 'SPDX license conflict'
+            : conflict.category === 'auth'
+              ? 'auth scheme collision'
+              : 'compatibility conflict',
+        relationshipType: 'dependency',
+        semanticRelation: 'CONFLICTS_WITH',
+        confidence: 'detected',
+        verificationStatus: 'conflict',
+        evidence: conflict.title,
+        sourceEngine: 'unified',
+        sources: [
+          ...(involvedEntryNodes[0].sources ?? []),
+          ...(involvedEntryNodes[1].sources ?? []),
+        ],
+      });
+    }
+  }
+
   const title =
     params.title?.trim() ||
     (sources.length > 0
       ? `Unified Intelligence: ${sources.map((s) => s.label).join(' + ')}`
       : 'SLASH Unified Graph');
 
-  const summary = `Unified knowledge graph connecting ${urlReports.length} URL report(s) and ${repoReports.length} repository report(s) into ${unifiedNodes.length} nodes and ${unifiedEdges.length} edges (${crossLinksCount} cross-resource bridge${crossLinksCount === 1 ? '' : 's'}).`;
+  const summary = `Unified knowledge graph connecting ${urlReports.length} URL(s), ${repoReports.length} repo(s), and ${connectorArtifacts.length} connector(s) into ${unifiedNodes.length} nodes and ${unifiedEdges.length} edges (${crossLinksCount} cross-resource bridge${crossLinksCount === 1 ? '' : 's'}).`;
 
   const createdAt = new Date().toISOString();
   const auditLog: GraphAuditEntry[] = params.auditLog ?? [
@@ -442,17 +789,19 @@ export function unifyIntelligenceSources(params: {
 
   return {
     id: `unified-${Date.now()}`,
-    schemaVersion: '1.0',
+    schemaVersion: '2.0',
     title,
     summary,
     createdAt,
     sources,
     urlReports,
     repoReports,
+    connectorArtifacts,
     nodes: unifiedNodes,
     edges: unifiedEdges,
     sharedTech: Array.from(sharedTechSet).sort(),
     crossLinksCount,
+    conflicts,
     aiSynthesis: params.aiSynthesis,
     truncationWarnings:
       truncationWarnings.length > 0 ? truncationWarnings : undefined,
@@ -460,9 +809,9 @@ export function unifyIntelligenceSources(params: {
     limitationsNote:
       'Cross-engine edges labeled Detected reflect matching repository paths, GitHub URLs, or shared package/fingerprint signatures. Edges labeled Inferred represent workspace-level system associations.',
     suggestedQuestions: [
-      'Which technologies or routes bridge the analyzed URLs and repositories?',
-      'Which nodes in this unified graph are directly detected vs. inferred?',
-      'Propose an integration or architecture improvement based on these connected resources.',
+      'Which technologies, schemas, or routes bridge the connected resources?',
+      'Are there any auth, runtime, or SPDX license conflicts across these sources?',
+      'Propose an integration adapter architecture based on these connected resources.',
     ],
   };
 }
@@ -498,6 +847,7 @@ export function unifiedGraphToReportAdapter(
         [
           ...project.urlReports.flatMap((r) => r.techStack),
           ...project.repoReports.flatMap((r) => r.techStack),
+          ...(project.connectorArtifacts ?? []).flatMap((c) => c.techStack),
         ].map((t) => [t.name.toLowerCase(), t]),
       ).values(),
     ),

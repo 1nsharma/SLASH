@@ -1,0 +1,59 @@
+services:
+  slash-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
+      GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
+      OAUTH_SESSION_SECRET: ${OAUTH_SESSION_SECRET:-change-me-in-production}
+      DATABASE_URL: postgres://slash:${POSTGRES_PASSWORD:-slash_dev}@slash-db:5432/slash
+      REDIS_URL: redis://slash-queue:6379
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://slash-ollama:11434}
+      CACHE_TTL_HOURS: ${CACHE_TTL_HOURS:-24}
+    depends_on:
+      slash-db:
+        condition: service_healthy
+      slash-queue:
+        condition: service_started
+    restart: unless-stopped
+
+  slash-db:
+    image: apache/age:release_PG17_1.5.0
+    environment:
+      POSTGRES_DB: slash
+      POSTGRES_USER: slash
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-slash_dev}
+    volumes:
+      - slash_pgdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U slash -d slash"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  slash-queue:
+    image: valkey/valkey:8-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  slash-ollama:
+    image: ollama/ollama:latest
+    profiles: ["local-llm"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - slash_ollama:/root/.ollama
+
+volumes:
+  slash_pgdata:
+  slash_ollama:

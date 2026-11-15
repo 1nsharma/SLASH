@@ -114,6 +114,46 @@ const ENV_VARIABLES = [
     purpose: 'GitHub personal access token for higher REST API rate limits during deep Repo Intelligence scans.',
   },
   {
+    name: 'GITHUB_OAUTH_CLIENT_ID',
+    requirement: 'Optional',
+    purpose: 'GitHub OAuth App Client ID for popup sign-in and user-owned private repository scanning.',
+  },
+  {
+    name: 'GITHUB_OAUTH_CLIENT_SECRET',
+    requirement: 'Optional',
+    purpose: 'Server-only GitHub OAuth App Client Secret used during authorization code exchange.',
+  },
+  {
+    name: 'OAUTH_SESSION_SECRET',
+    requirement: 'Optional',
+    purpose: '32+ char key for AES-256-GCM HttpOnly GitHub session cookies and HMAC-signed OAuth state.',
+  },
+  {
+    name: 'OLLAMA_BASE_URL',
+    requirement: 'Optional',
+    purpose: 'Local Ollama endpoint (e.g. http://ollama:11434) for offline self-hosted AI synthesis.',
+  },
+  {
+    name: 'OLLAMA_MODEL',
+    requirement: 'Optional',
+    purpose: 'Default local Ollama model tag (defaults to llama3.1:8b).',
+  },
+  {
+    name: 'AI_PROVIDER',
+    requirement: 'Optional',
+    purpose: 'Server-side AI Router target (auto | gemini | ollama | deterministic).',
+  },
+  {
+    name: 'OPENAI_API_KEY',
+    requirement: 'Optional (BYOK)',
+    purpose: 'Server-only BYOK OpenAI credential configured via environment variables (never entered in browser UI).',
+  },
+  {
+    name: 'ANTHROPIC_API_KEY',
+    requirement: 'Optional (BYOK)',
+    purpose: 'Server-only BYOK Anthropic credential configured via environment variables (never entered in browser UI).',
+  },
+  {
     name: 'META_OEMBED_TOKEN',
     requirement: 'Optional',
     purpose: 'Meta App token enabling authenticated Instagram Graph oEmbed previews.',
@@ -130,8 +170,11 @@ const ENV_VARIABLES = [
   },
 ];
 
-const DOCKER_SNIPPET = `docker build -t slash-repo-unifier .
-docker run -p 3000:3000 -e GEMINI_API_KEY=your_key -e GITHUB_TOKEN=optional_pat -e CACHE_TTL_HOURS=24 slash-repo-unifier`;
+const DOCKER_SNIPPET = `# Full self-hosted stack (Next.js + PG17/pgvector/Apache AGE + Valkey)
+docker compose up -d
+
+# Optional offline local LLM profile (Ollama)
+docker compose --profile local-llm up -d`;
 
 export default function PipelineView({ onGoToAnalyzer }: PipelineViewProps) {
   const [copiedDocker, setCopiedDocker] = useState(false);
@@ -323,9 +366,14 @@ export default function PipelineView({ onGoToAnalyzer }: PipelineViewProps) {
               <code>{DOCKER_SNIPPET}</code>
             </pre>
             <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              Shared report caching stores normalized JSON snapshots under{' '}
+              Repository ships{' '}
+              <code className="font-mono text-slate-800 dark:text-slate-200">docker-compose.yml</code>{' '}
+              and{' '}
+              <code className="font-mono text-slate-800 dark:text-slate-200">db/schema.sql</code>{' '}
+              (PostgreSQL 17 + <code className="font-mono text-slate-800 dark:text-slate-200">pgvector</code> + Apache AGE + Valkey).
+              Public report caching uses{' '}
               <code className="font-mono text-slate-800 dark:text-slate-200">.cache/urlmind/</code>{' '}
-              on disk so repeat team lookups resolve immediately without redundant crawls.
+              while private OAuth-scanned repositories bypass shared disk cache.
             </p>
           </div>
 
@@ -354,6 +402,53 @@ export default function PipelineView({ onGoToAnalyzer }: PipelineViewProps) {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      </section>
+
+      {/* Open-Core Distribution & BYOK Architecture */}
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Server className="w-4 h-4 text-blue-600 dark:text-blue-400" aria-hidden="true" />
+            <h2 className="font-display text-base font-semibold text-slate-900 dark:text-white">
+              Open-Core Editions &amp; Server-Side BYOK Router
+            </h2>
+          </div>
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            Zero browser API key entry · 100% env-configured
+          </span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+          <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
+            <p className="font-semibold text-slate-900 dark:text-white">
+              Community Edition (MIT / Apache-2.0)
+            </p>
+            <p>
+              Full URLmind ingestion, Repo Intelligence, 4-Zone Business Grid,
+              Auto-Bridging gap detector, and local Docker Compose Run Business
+              export using Gemini, Ollama, or server-side BYOK keys.
+            </p>
+          </div>
+          <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
+            <p className="font-semibold text-slate-900 dark:text-white">
+              Managed Cloud (1-Click Run Business)
+            </p>
+            <p>
+              Zero-DevOps hosted gateway runtime, isolated container execution,
+              shared workspace memory (pgvector), and team RBAC with audit
+              trails.
+            </p>
+          </div>
+          <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
+            <p className="font-semibold text-slate-900 dark:text-white">
+              Verified Business Blocks Ecosystem
+            </p>
+            <p>
+              Pre-audited Clerk, Supabase, Stripe, Razorpay, Shared pgvector
+              Memory, and n8n adapters that snap cleanly into any unified
+              workspace.
+            </p>
           </div>
         </div>
       </section>

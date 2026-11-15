@@ -1,5 +1,10 @@
+import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { analyzeRepoPipeline } from '@/lib/repo/analyzer';
+import {
+  decryptTokenPayload,
+  GITHUB_SESSION_COOKIE,
+} from '@/lib/security/tokenVault';
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,9 +21,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    let githubAccessToken: string | undefined;
+    try {
+      const cookieStore = await cookies();
+      const sealed = cookieStore.get(GITHUB_SESSION_COOKIE)?.value;
+      const session = decryptTokenPayload(sealed);
+      githubAccessToken = session?.accessToken;
+    } catch {
+      // Request context outside Next cookies (e.g., direct unit test invocation)
+    }
+
     const report = await analyzeRepoPipeline(body.repoUrl, {
       usePreset: Boolean(body.usePreset),
       forceRefresh: Boolean(body.forceRefresh),
+      githubAccessToken,
     });
 
     return NextResponse.json({ repoReport: report, report });

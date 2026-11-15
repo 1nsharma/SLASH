@@ -20,6 +20,7 @@ import {
   Search,
   X,
 } from 'lucide-react';
+import { BUSINESS_ZONE_META } from '@/lib/business/zones';
 import { computeLayeredGraphPositions } from '@/lib/graphLayout';
 import type {
   EvidenceConfidence,
@@ -94,9 +95,17 @@ function ArchitectureNodeCard({ data }: NodeProps<Node<CustomNodeData>>) {
       <p className="mt-1 text-xs text-slate-600 dark:text-slate-400 line-clamp-2 leading-relaxed">
         {node.description}
       </p>
-      {node.sourceLabel && (
+      {(node.sourceLabel || node.businessZone) && (
         <p className="mt-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-800 text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate">
-          {node.sourceEngine === 'repo' ? 'Repo' : 'URLmind'} · {node.sourceLabel}
+          {node.businessZone
+            ? `${BUSINESS_ZONE_META[node.businessZone].shortLabel} · `
+            : ''}
+          {node.sourceEngine === 'repo'
+            ? 'Repo'
+            : node.sourceEngine === 'connector'
+              ? 'Block'
+              : 'URLmind'}
+          {node.sourceLabel ? ` · ${node.sourceLabel}` : ''}
         </p>
       )}
       <Handle
@@ -488,6 +497,14 @@ export default function ArchitectureMap({
                 <div>
                   <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
                     <span>{LAYER_LABELS[selectedNode.layer]}</span>
+                    {selectedNode.businessZone && (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span className="font-medium text-blue-600 dark:text-blue-400">
+                          {BUSINESS_ZONE_META[selectedNode.businessZone].shortLabel} Zone
+                        </span>
+                      </>
+                    )}
                     <span aria-hidden="true">·</span>
                     <span>{selectedNode.category}</span>
                     {selectedNode.entityType && (

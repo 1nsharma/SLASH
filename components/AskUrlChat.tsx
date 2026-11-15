@@ -57,7 +57,13 @@ export default function AskUrlChat({
       : report?.nodes.length || 0;
 
   const suggestedQuestions = unifiedProject
-    ? unifiedProject.suggestedQuestions
+    ? Array.from(
+        new Set([
+          'Detect missing Business OS blocks (Auth, Payments, Memory, Automation) and propose fixes',
+          'Connect Frontend to AI Brain and propose Stripe billing integration',
+          ...unifiedProject.suggestedQuestions,
+        ]),
+      )
     : repoReport
       ? repoReport.suggestedQuestions
       : report?.suggestedQuestions || [];

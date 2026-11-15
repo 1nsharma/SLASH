@@ -9,6 +9,7 @@ import SavedMapsView from '@/components/SavedMapsView';
 import TopNav, { type AppSection } from '@/components/TopNav';
 import UnifiedGraphWorkspace from '@/components/UnifiedGraphWorkspace';
 import UrlAnalyzerLanding from '@/components/UrlAnalyzerLanding';
+import { buildBusinessBlockArtifact } from '@/lib/business/blocks';
 import { normalizeAndValidateUrl } from '@/lib/classifier';
 import { generateMarkdownReport } from '@/lib/graphLayout';
 import {
@@ -18,7 +19,10 @@ import {
 import { findRepoPreset, REPO_PRESETS } from '@/lib/repo/presets';
 import { SHOWCASE_PRESETS } from '@/lib/showcasePresets';
 import type {
+  ConnectedConnectorArtifact,
+  ConnectorSourceKind,
   CopilotActionProposal,
+  GraphAuditEntry,
   RepoIntelligenceReport,
   UnifiedGraphProject,
   UrlIntelligenceReport,
@@ -269,8 +273,14 @@ export default function HomePage() {
     async (
       nextUrls: UrlIntelligenceReport[],
       nextRepos: RepoIntelligenceReport[],
+      nextConnectors: ConnectedConnectorArtifact[] = [],
+      auditLogOverride?: GraphAuditEntry[],
     ) => {
-      if (nextUrls.length === 0 && nextRepos.length === 0) {
+      if (
+        nextUrls.length === 0 &&
+        nextRepos.length === 0 &&
+        nextConnectors.length === 0
+      ) {
         persistUnifiedProject(null);
         return;
       }
@@ -278,6 +288,8 @@ export default function HomePage() {
       const deterministic = unifyIntelligenceSources({
         urlReports: nextUrls,
         repoReports: nextRepos,
+        connectorArtifacts: nextConnectors,
+        auditLog: auditLogOverride,
       });
       persistUnifiedProject(deterministic);
 
@@ -288,6 +300,7 @@ export default function HomePage() {
         body: JSON.stringify({
           urlReports: nextUrls,
           repoReports: nextRepos,
+          connectorArtifacts: nextConnectors,
         }),
       })
         .then(async (res) => {
@@ -316,11 +329,12 @@ export default function HomePage() {
       setSection('unified');
       const existingUrls = unifiedProject?.urlReports ?? [];
       const existingRepos = unifiedProject?.repoReports ?? [];
+      const existingConnectors = unifiedProject?.connectorArtifacts ?? [];
       const dedupedUrls = [
         report,
         ...existingUrls.filter((u) => u.id !== report.id),
       ];
-      await rebuildUnifiedGraph(dedupedUrls, existingRepos);
+      await rebuildUnifiedGraph(dedupedUrls, existingRepos, existingConnectors);
     },
     [rebuildUnifiedGraph, unifiedProject],
   );
@@ -331,11 +345,12 @@ export default function HomePage() {
       setSection('unified');
       const existingUrls = unifiedProject?.urlReports ?? [];
       const existingRepos = unifiedProject?.repoReports ?? [];
+      const existingConnectors = unifiedProject?.connectorArtifacts ?? [];
       const dedupedRepos = [
         repoReport,
         ...existingRepos.filter((r) => r.id !== repoReport.id),
       ];
-      await rebuildUnifiedGraph(existingUrls, dedupedRepos);
+      await rebuildUnifiedGraph(existingUrls, dedupedRepos, existingConnectors);
     },
     [rebuildUnifiedGraph, unifiedProject],
   );
@@ -354,6 +369,7 @@ export default function HomePage() {
         });
         const existingUrls = unifiedProject?.urlReports ?? [];
         const existingRepos = unifiedProject?.repoReports ?? [];
+        const existingConnectors = unifiedProject?.connectorArtifacts ?? [];
         const dedupedUrls = [
           ...existingUrls.filter(
             (u) =>
@@ -362,7 +378,7 @@ export default function HomePage() {
           ),
           report,
         ];
-        await rebuildUnifiedGraph(dedupedUrls, existingRepos);
+        await rebuildUnifiedGraph(dedupedUrls, existingRepos, existingConnectors);
       } catch (err) {
         setUnifiedError(
           err instanceof Error ? err.message : 'Could not attach URL to graph.',
@@ -384,6 +400,7 @@ export default function HomePage() {
         });
         const existingUrls = unifiedProject?.urlReports ?? [];
         const existingRepos = unifiedProject?.repoReports ?? [];
+        const existingConnectors = unifiedProject?.connectorArtifacts ?? [];
         const dedupedRepos = [
           ...existingRepos.filter(
             (r) =>
@@ -392,7 +409,7 @@ export default function HomePage() {
           ),
           report,
         ];
-        await rebuildUnifiedGraph(existingUrls, dedupedRepos);
+        await rebuildUnifiedGraph(existingUrls, dedupedRepos, existingConnectors);
       } catch (err) {
         setUnifiedError(
           err instanceof Error
@@ -406,6 +423,54 @@ export default function HomePage() {
     [fetchOrPresetRepoReport, rebuildUnifiedGraph, unifiedProject],
   );
 
+  const handleAttachConnectorToUnified = useCallback(
+    async (input: {
+      kind: ConnectorSourceKind;
+      label?: string;
+      urlOrLocator?: string;
+      rawContent?: string;
+      usePreset?: boolean;
+    }) => {
+      setUnifiedError(null);
+      setUnifiedBusy(true);
+      try {
+        const res = await fetch('/api/connectors/ingest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(input),
+        });
+        const data = (await res.json()) as {
+          artifact?: ConnectedConnectorArtifact;
+          error?: string;
+        };
+        if (!res.ok || !data.artifact) {
+          throw new Error(data.error || 'Could not ingest connector source.');
+        }
+
+        const existingUrls = unifiedProject?.urlReports ?? [];
+        const existingRepos = unifiedProject?.repoReports ?? [];
+        const existingConnectors = unifiedProject?.connectorArtifacts ?? [];
+        const dedupedConnectors = [
+          ...existingConnectors.filter(
+            (c) =>
+              c.locator.toLowerCase() !== data.artifact!.locator.toLowerCase(),
+          ),
+          data.artifact,
+        ];
+        await rebuildUnifiedGraph(existingUrls, existingRepos, dedupedConnectors);
+      } catch (err) {
+        setUnifiedError(
+          err instanceof Error
+            ? err.message
+            : 'Could not attach connector source.',
+        );
+      } finally {
+        setUnifiedBusy(false);
+      }
+    },
+    [rebuildUnifiedGraph, unifiedProject],
+  );
+
   const handleLaunchSampleUnified = useCallback(async () => {
     setUnifiedError(null);
     setSection('unified');
@@ -414,12 +479,57 @@ export default function HomePage() {
       const sampleDocs = SHOWCASE_PRESETS['https://nextjs.org/docs'];
       const sampleRepo = REPO_PRESETS['https://github.com/vercel/ai'];
       if (sampleDocs && sampleRepo) {
-        await rebuildUnifiedGraph([sampleDocs], [sampleRepo]);
+        await rebuildUnifiedGraph([sampleDocs], [sampleRepo], []);
       }
     } finally {
       setUnifiedBusy(false);
     }
   }, [rebuildUnifiedGraph]);
+
+  const handleAddBusinessBlockToUnified = useCallback(
+    async (
+      blockId: string,
+      actor: 'user' | 'copilot-approved' = 'user',
+    ) => {
+      setUnifiedError(null);
+      setUnifiedBusy(true);
+      try {
+        const artifact = buildBusinessBlockArtifact(blockId);
+        const existingUrls = unifiedProject?.urlReports ?? [];
+        const existingRepos = unifiedProject?.repoReports ?? [];
+        const existingConnectors = unifiedProject?.connectorArtifacts ?? [];
+        const dedupedConnectors = [
+          ...existingConnectors.filter(
+            (c) => c.connectorId !== artifact.connectorId,
+          ),
+          artifact,
+        ];
+        const nextAudit: GraphAuditEntry = {
+          id: `audit-block-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          actor,
+          action: `Attached Business Block (${artifact.businessZone ?? 'operations'})`,
+          target: artifact.label,
+          status: 'applied',
+        };
+        await rebuildUnifiedGraph(
+          existingUrls,
+          existingRepos,
+          dedupedConnectors,
+          [nextAudit, ...(unifiedProject?.auditLog ?? [])],
+        );
+      } catch (err) {
+        setUnifiedError(
+          err instanceof Error
+            ? err.message
+            : 'Could not attach Business Block.',
+        );
+      } finally {
+        setUnifiedBusy(false);
+      }
+    },
+    [rebuildUnifiedGraph, unifiedProject],
+  );
 
   const handleRemoveSourceFromUnified = useCallback(
     (sourceId: string) => {
@@ -430,17 +540,50 @@ export default function HomePage() {
       const nextRepos = unifiedProject.repoReports.filter(
         (r) => r.id !== sourceId,
       );
-      if (nextUrls.length === 0 && nextRepos.length === 0) {
+      const nextConnectors = (unifiedProject.connectorArtifacts ?? []).filter(
+        (c) => c.id !== sourceId,
+      );
+      if (
+        nextUrls.length === 0 &&
+        nextRepos.length === 0 &&
+        nextConnectors.length === 0
+      ) {
         persistUnifiedProject(null);
         return;
       }
       const nextProject = unifyIntelligenceSources({
         urlReports: nextUrls,
         repoReports: nextRepos,
+        connectorArtifacts: nextConnectors,
       });
       persistUnifiedProject(nextProject);
     },
     [persistUnifiedProject, unifiedProject],
+  );
+
+  const handleUpdateUnifiedProject = useCallback(
+    (
+      next: UnifiedGraphProject,
+      auditAction?: { action: string; target: string },
+    ) => {
+      if (!auditAction) {
+        persistUnifiedProject(next);
+        return;
+      }
+      const entry = {
+        id: `audit-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        actor: 'user' as const,
+        action: auditAction.action,
+        target: auditAction.target,
+        status: 'applied' as const,
+      };
+      persistUnifiedProject({
+        ...next,
+        auditLog: [entry, ...(next.auditLog ?? [])],
+      });
+    },
+    [persistUnifiedProject],
   );
 
   const handleApproveProposal = useCallback(
@@ -500,6 +643,16 @@ export default function HomePage() {
         return;
       }
 
+      if (
+        proposal.type === 'add_business_block' ||
+        proposal.type === 'fill_business_gap'
+      ) {
+        const blockId = proposal.payload?.blockId || proposal.target;
+        setSection('unified');
+        await handleAddBusinessBlockToUnified(blockId, 'copilot-approved');
+        return;
+      }
+
       if (proposal.type === 'export_blueprint') {
         const targetReport = unifiedProject
           ? unifiedGraphToReportAdapter(unifiedProject)
@@ -534,6 +687,7 @@ export default function HomePage() {
     },
     [
       activeReport,
+      handleAddBusinessBlockToUnified,
       handleAttachRepoToUnified,
       handleAttachUrlToUnified,
       persistUnifiedProject,
@@ -748,7 +902,12 @@ export default function HomePage() {
             repoHistory={repoHistory}
             onAttachUrl={handleAttachUrlToUnified}
             onAttachRepo={handleAttachRepoToUnified}
+            onAttachConnector={handleAttachConnectorToUnified}
+            onUpdateProject={handleUpdateUnifiedProject}
             onLaunchSampleUnified={handleLaunchSampleUnified}
+            onAddBusinessBlock={(blockId) =>
+              handleAddBusinessBlockToUnified(blockId, 'user')
+            }
             onRemoveSource={handleRemoveSourceFromUnified}
             onApproveProposal={handleApproveProposal}
             isDark={isDark}

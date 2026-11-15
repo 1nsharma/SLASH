@@ -4,6 +4,7 @@ import { getGeminiClient } from '@/lib/gemini';
 import { unifyIntelligenceSources } from '@/lib/graph/unifier';
 import { analyzeRepoPipeline } from '@/lib/repo/analyzer';
 import type {
+  ConnectedConnectorArtifact,
   RepoIntelligenceReport,
   UrlIntelligenceReport,
 } from '@/lib/types';
@@ -16,11 +17,13 @@ export async function POST(req: NextRequest) {
       repoUrls?: string[];
       urlReports?: UrlIntelligenceReport[];
       repoReports?: RepoIntelligenceReport[];
+      connectorArtifacts?: ConnectedConnectorArtifact[];
       usePreset?: boolean;
     };
 
     const existingUrlReports = [...(body.urlReports ?? [])];
     const existingRepoReports = [...(body.repoReports ?? [])];
+    const connectorArtifacts = [...(body.connectorArtifacts ?? [])];
 
     const newUrlReports = await Promise.all(
       (body.urls ?? [])
@@ -41,9 +44,13 @@ export async function POST(req: NextRequest) {
     const allUrlReports = [...existingUrlReports, ...newUrlReports];
     const allRepoReports = [...existingRepoReports, ...newRepoReports];
 
-    if (allUrlReports.length === 0 && allRepoReports.length === 0) {
+    if (
+      allUrlReports.length === 0 &&
+      allRepoReports.length === 0 &&
+      connectorArtifacts.length === 0
+    ) {
       return NextResponse.json(
-        { error: 'Provide at least one URL or repository to unify.' },
+        { error: 'Provide at least one URL, repository, or connector source to unify.' },
         { status: 400 },
       );
     }
@@ -51,6 +58,7 @@ export async function POST(req: NextRequest) {
     const preliminary = unifyIntelligenceSources({
       urlReports: allUrlReports,
       repoReports: allRepoReports,
+      connectorArtifacts,
       title: body.title,
     });
 

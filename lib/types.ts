@@ -24,13 +24,18 @@ export interface SocialMetadata {
 
 export type EvidenceConfidence = 'detected' | 'inferred';
 
-export type VerificationStatus = 'verified' | 'unverified' | 'restricted';
+export type VerificationStatus =
+  | 'verified'
+  | 'unverified'
+  | 'restricted'
+  | 'conflict';
 
 export type SharedEntityType =
   | 'url'
   | 'website'
   | 'webpage'
   | 'repository'
+  | 'component'
   | 'file'
   | 'package'
   | 'api'
@@ -40,7 +45,11 @@ export type SharedEntityType =
   | 'video'
   | 'document'
   | 'integration'
-  | 'ai_model';
+  | 'ai_model'
+  | 'database_schema'
+  | 'data_model'
+  | 'auth_flow'
+  | 'webhook';
 
 export type SharedRelationVerb =
   | 'CONTAINS'
@@ -53,7 +62,21 @@ export type SharedRelationVerb =
   | 'CONNECTS_TO'
   | 'DOCUMENTS'
   | 'REFERENCES'
-  | 'DERIVED_FROM';
+  | 'DERIVED_FROM'
+  | 'AUTHENTICATES_WITH'
+  | 'READS_FROM'
+  | 'WRITES_TO'
+  | 'TRIGGERS'
+  | 'COMPATIBLE_WITH'
+  | 'CONFLICTS_WITH';
+
+export interface NodeContractMetadata {
+  runtime?: string;
+  framework?: string;
+  authScheme?: string;
+  license?: string;
+  envVarsRequired?: string[];
+}
 
 export interface GraphSourceRef {
   engine: IntelligenceEngineSource;
@@ -78,6 +101,8 @@ export type NodeLayer =
   | 'data'
   | 'external';
 
+export type BusinessZone = 'frontend' | 'brain' | 'data' | 'operations';
+
 export type RelationshipType =
   | 'navigation'
   | 'dependency'
@@ -85,7 +110,11 @@ export type RelationshipType =
   | 'auth'
   | 'reference';
 
-export type IntelligenceEngineSource = 'urlmind' | 'repo' | 'unified';
+export type IntelligenceEngineSource =
+  | 'urlmind'
+  | 'repo'
+  | 'connector'
+  | 'unified';
 
 export interface IntelligenceNode {
   id: string;
@@ -101,7 +130,9 @@ export interface IntelligenceNode {
   sourceLabel?: string;
   entityType?: SharedEntityType;
   verificationStatus?: VerificationStatus;
+  businessZone?: BusinessZone;
   sources?: GraphSourceRef[];
+  contract?: NodeContractMetadata;
 }
 
 export interface IntelligenceEdge {
@@ -253,6 +284,8 @@ export interface RepoIntelligenceReport {
   defaultBranch: string;
   primaryLanguage: string;
   topics: string[];
+  licenseSpdx?: string;
+  isPrivate?: boolean;
   title: string;
   summary: string;
   executiveOverview: string;
@@ -273,14 +306,134 @@ export interface RepoIntelligenceReport {
   suggestedQuestions: string[];
 }
 
+export type ConnectorSourceKind =
+  | 'github_public_repo'
+  | 'github_private_repo'
+  | 'website_url'
+  | 'openapi_spec'
+  | 'webhook_endpoint'
+  | 'database_schema'
+  | 'document_pdf'
+  | 'tech_csv';
+
+export interface ConnectedConnectorArtifact {
+  id: string;
+  kind: ConnectorSourceKind;
+  connectorId: string;
+  label: string;
+  locator: string;
+  summary: string;
+  licenseSpdx?: string;
+  authScheme?: string;
+  runtime?: string;
+  businessZone?: BusinessZone;
+  envVarsRequired: string[];
+  endpoints?: Array<{ method: string; path: string; summary?: string }>;
+  tables?: Array<{ name: string; columns: string[]; relations: string[] }>;
+  nodes: IntelligenceNode[];
+  edges: IntelligenceEdge[];
+  techStack: TechItem[];
+  warnings: string[];
+  ingestedAt: string;
+}
+
+export interface BusinessBlockTemplate {
+  id: string;
+  name: string;
+  vendor: string;
+  zone: BusinessZone;
+  capability: 'auth' | 'payments' | 'database' | 'automation' | 'memory';
+  summary: string;
+  licenseSpdx: string;
+  authScheme?: string;
+  envVarsRequired: string[];
+  endpoints?: Array<{ method: string; path: string; summary?: string }>;
+  tables?: Array<{ name: string; columns: string[]; relations: string[] }>;
+}
+
+export interface BusinessGapSuggestion {
+  id: string;
+  missingCapability: 'auth' | 'payments' | 'database' | 'automation';
+  zone: BusinessZone;
+  title: string;
+  description: string;
+  recommendedBlockIds: string[];
+  severity: 'high' | 'medium';
+}
+
+export interface GraphConflict {
+  id: string;
+  severity: 'high' | 'medium' | 'info';
+  category: 'runtime' | 'auth' | 'license' | 'route' | 'dependency';
+  title: string;
+  description: string;
+  involvedSourceIds: string[];
+  resolutionOptions: string[];
+  selectedResolution?: string;
+}
+
+export interface ComposerComponentMapping {
+  sourceId: string;
+  sourceLabel: string;
+  assignedRole: 'frontend' | 'backend' | 'auth' | 'database' | 'api' | 'config';
+  targetDirectory: string;
+  integrationNotes: string;
+}
+
+export interface CompositionPlan {
+  id: string;
+  goalPrompt: string;
+  createdAt: string;
+  approvalStatus: 'draft' | 'approved' | 'rejected';
+  summary: string;
+  compatibilityScore: number;
+  architectureOverview: string;
+  componentMappings: ComposerComponentMapping[];
+  conflicts: GraphConflict[];
+  implementationSteps: string[];
+  requiredAdapters: string[];
+  envVarsRequired: string[];
+}
+
+export interface VirtualFile {
+  path: string;
+  content: string;
+  language: 'typescript' | 'json' | 'sql' | 'markdown' | 'yaml' | 'html' | 'env';
+  provenance: 'copied' | 'adapted' | 'generated';
+  sourceLabel: string;
+  licenseSpdx?: string;
+}
+
+export interface SandboxCheckResult {
+  id: string;
+  label: string;
+  status: 'passed' | 'failed' | 'warning';
+  details: string;
+}
+
+export interface VirtualProjectBundle {
+  planId: string;
+  projectName: string;
+  generatedAt: string;
+  validationMode: 'static-contract' | 'isolated-sandbox';
+  files: VirtualFile[];
+  checks: SandboxCheckResult[];
+  previewHtml: string;
+  thirdPartyNotices: string;
+}
+
 export interface UnifiedSourceSummary {
   id: string;
-  kind: 'url' | 'repo';
+  kind: 'url' | 'repo' | 'connector';
+  connectorKind?: ConnectorSourceKind;
+  businessZone?: BusinessZone;
   label: string;
   url: string;
   nodeCount: number;
   detectedCount: number;
   categoryOrLanguage: string;
+  licenseSpdx?: string;
+  authScheme?: string;
 }
 
 export interface UnifiedGraphProject {
@@ -292,10 +445,14 @@ export interface UnifiedGraphProject {
   sources: UnifiedSourceSummary[];
   urlReports: UrlIntelligenceReport[];
   repoReports: RepoIntelligenceReport[];
+  connectorArtifacts?: ConnectedConnectorArtifact[];
   nodes: IntelligenceNode[];
   edges: IntelligenceEdge[];
   sharedTech: string[];
   crossLinksCount: number;
+  conflicts?: GraphConflict[];
+  compositionPlan?: CompositionPlan;
+  virtualBundle?: VirtualProjectBundle;
   aiSynthesis?: string;
   truncationWarnings?: string[];
   auditLog?: GraphAuditEntry[];
@@ -307,6 +464,8 @@ export type CopilotActionType =
   | 'analyze_and_link_url'
   | 'analyze_and_link_repo'
   | 'add_verified_edge'
+  | 'add_business_block'
+  | 'fill_business_gap'
   | 'export_blueprint';
 
 export interface CopilotActionProposal {
@@ -324,6 +483,8 @@ export interface CopilotActionProposal {
     targetNodeId?: string;
     edgeLabel?: string;
     relationshipType?: RelationshipType;
+    blockId?: string;
+    businessZone?: BusinessZone;
   };
 }
 
