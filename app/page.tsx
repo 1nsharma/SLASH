@@ -6,7 +6,10 @@ import IntelligenceWorkspace from '@/components/IntelligenceWorkspace';
 import PipelineView from '@/components/PipelineView';
 import RepoWorkspace from '@/components/RepoWorkspace';
 import SavedMapsView from '@/components/SavedMapsView';
-import TopNav, { type AppSection } from '@/components/TopNav';
+import TopNav, {
+  type AppSection,
+  type UnifiedFocusTab,
+} from '@/components/TopNav';
 import UnifiedGraphWorkspace from '@/components/UnifiedGraphWorkspace';
 import UrlAnalyzerLanding from '@/components/UrlAnalyzerLanding';
 import { buildBusinessBlockArtifact } from '@/lib/business/blocks';
@@ -36,6 +39,7 @@ const STORAGE_THEME_KEY = 'urlmind_theme_v1';
 
 export default function HomePage() {
   const [section, setSection] = useState<AppSection>('analyzer');
+  const [unifiedFocus, setUnifiedFocus] = useState<UnifiedFocusTab>('build');
   const [activeReport, setActiveReport] =
     useState<UrlIntelligenceReport | null>(null);
   const [activeRepoReport, setActiveRepoReport] =
@@ -473,6 +477,7 @@ export default function HomePage() {
 
   const handleLaunchSampleUnified = useCallback(async () => {
     setUnifiedError(null);
+    setUnifiedFocus('build');
     setSection('unified');
     setUnifiedBusy(true);
     try {
@@ -786,16 +791,36 @@ export default function HomePage() {
     });
   };
 
-  const hasAnyActiveAnalysis = Boolean(activeReport || activeRepoReport);
+  const hasAnyActiveWork = Boolean(
+    activeReport || activeRepoReport || unifiedProject,
+  );
 
-  const handlePrimaryHeaderAction = () => {
-    if (hasAnyActiveAnalysis) {
+  const handleSelectGuidedStep = (step: 'connect' | 'build' | 'launch') => {
+    if (step === 'connect') {
       setActiveReport(null);
       setActiveRepoReport(null);
       setErrorMessage(null);
       setSection('analyzer');
+      return;
+    }
+    if (step === 'build') {
+      setUnifiedFocus('build');
+      setSection('unified');
+      return;
+    }
+    setUnifiedFocus('launch');
+    setSection('unified');
+  };
+
+  const handlePrimaryHeaderAction = () => {
+    if (hasAnyActiveWork) {
+      setActiveReport(null);
+      setActiveRepoReport(null);
+      persistUnifiedProject(null);
+      setErrorMessage(null);
+      setSection('analyzer');
     } else {
-      void handleAnalyze('https://github.com/vercel/ai', { usePreset: true });
+      void handleLaunchSampleUnified();
     }
   };
 
@@ -803,35 +828,81 @@ export default function HomePage() {
     <div id="top" className="min-h-screen flex flex-col">
       <TopNav
         activeSection={section}
-        onNavigate={(next) => setSection(next)}
-        hasActiveReport={hasAnyActiveAnalysis}
+        unifiedFocus={unifiedFocus}
+        onSelectStep={handleSelectGuidedStep}
+        onNavigateTool={(toolSection) => setSection(toolSection)}
+        hasActiveWork={hasAnyActiveWork}
         onPrimaryAction={handlePrimaryHeaderAction}
       />
 
-      {/* Mobile Secondary Section Switcher */}
+      {/* Mobile Secondary Guided Flow Switcher */}
       <div className="md:hidden border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-4 py-2 flex items-center gap-2 overflow-x-auto">
-        {(
-          [
-            { id: 'analyzer', label: 'Analyzer' },
-            { id: 'unified', label: 'Unified Graph' },
-            { id: 'compare', label: 'Compare' },
-            { id: 'saved', label: 'Saved Maps' },
-            { id: 'pipeline', label: 'Pipeline' },
-          ] as const
-        ).map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setSection(item.id)}
-            className={`px-3 py-1 text-xs font-medium rounded-md whitespace-nowrap shrink-0 ${
-              section === item.id
-                ? 'bg-slate-900 dark:bg-blue-600 text-white'
-                : 'text-slate-600 dark:text-slate-400'
-            }`}
-          >
-            {item.label}
-          </button>
-        ))}
+        <button
+          type="button"
+          onClick={() => handleSelectGuidedStep('connect')}
+          className={`px-3 py-1 text-xs font-medium rounded-md whitespace-nowrap shrink-0 ${
+            section === 'analyzer'
+              ? 'bg-slate-900 dark:bg-blue-600 text-white'
+              : 'text-slate-600 dark:text-slate-400'
+          }`}
+        >
+          1. Connect
+        </button>
+        <button
+          type="button"
+          onClick={() => handleSelectGuidedStep('build')}
+          className={`px-3 py-1 text-xs font-medium rounded-md whitespace-nowrap shrink-0 ${
+            section === 'unified' && unifiedFocus === 'build'
+              ? 'bg-slate-900 dark:bg-blue-600 text-white'
+              : 'text-slate-600 dark:text-slate-400'
+          }`}
+        >
+          2. Build &amp; Fix
+        </button>
+        <button
+          type="button"
+          onClick={() => handleSelectGuidedStep('launch')}
+          className={`px-3 py-1 text-xs font-medium rounded-md whitespace-nowrap shrink-0 ${
+            section === 'unified' && unifiedFocus === 'launch'
+              ? 'bg-slate-900 dark:bg-blue-600 text-white'
+              : 'text-slate-600 dark:text-slate-400'
+          }`}
+        >
+          3. Launch
+        </button>
+        <button
+          type="button"
+          onClick={() => setSection('compare')}
+          className={`px-3 py-1 text-xs font-medium rounded-md whitespace-nowrap shrink-0 ${
+            section === 'compare'
+              ? 'bg-slate-900 dark:bg-blue-600 text-white'
+              : 'text-slate-600 dark:text-slate-400'
+          }`}
+        >
+          Compare
+        </button>
+        <button
+          type="button"
+          onClick={() => setSection('saved')}
+          className={`px-3 py-1 text-xs font-medium rounded-md whitespace-nowrap shrink-0 ${
+            section === 'saved'
+              ? 'bg-slate-900 dark:bg-blue-600 text-white'
+              : 'text-slate-600 dark:text-slate-400'
+          }`}
+        >
+          Saved Maps
+        </button>
+        <button
+          type="button"
+          onClick={() => setSection('pipeline')}
+          className={`px-3 py-1 text-xs font-medium rounded-md whitespace-nowrap shrink-0 ${
+            section === 'pipeline'
+              ? 'bg-slate-900 dark:bg-blue-600 text-white'
+              : 'text-slate-600 dark:text-slate-400'
+          }`}
+        >
+          Docs
+        </button>
       </div>
 
       <div className="flex-1">
@@ -898,6 +969,9 @@ export default function HomePage() {
         {section === 'unified' && (
           <UnifiedGraphWorkspace
             project={unifiedProject}
+            focusTab={unifiedFocus}
+            onChangeFocusTab={setUnifiedFocus}
+            onBackToConnect={() => handleSelectGuidedStep('connect')}
             urlHistory={history}
             repoHistory={repoHistory}
             onAttachUrl={handleAttachUrlToUnified}

@@ -30,6 +30,7 @@ import {
   generateMermaidDiagram,
 } from './graphLayout';
 import { findShowcasePreset, SHOWCASE_PRESETS } from './showcasePresets';
+import { detectSmartInputKind } from './smartInput';
 import { defaultAdapterRegistry } from './adapters/registry';
 import {
   buildDeterministicRepoGraph,
@@ -912,6 +913,35 @@ test('Copilot proposals support add_business_block and fill_business_gap and Com
   assert.equal(bundle.checks.length, 5);
   assert.ok(bundle.checks.every((c) => c.status === 'passed'));
 });
+
+test('detectSmartInputKind routes GitHub repos vs domain paths vs invalid URLs cleanly', () => {
+  const repoShorthand = detectSmartInputKind('vercel/ai');
+  assert.equal(repoShorthand.kind, 'repo');
+  if (repoShorthand.kind === 'repo') {
+    assert.equal(repoShorthand.fullName, 'vercel/ai');
+    assert.equal(repoShorthand.normalizedUrl, 'https://github.com/vercel/ai');
+  }
+
+  const repoFull = detectSmartInputKind('https://github.com/fastapi/fastapi');
+  assert.equal(repoFull.kind, 'repo');
+  if (repoFull.kind === 'repo') {
+    assert.equal(repoFull.fullName, 'fastapi/fastapi');
+  }
+
+  // Domain + path without scheme must route as URL, not GitHub owner/repo
+  const domainPath = detectSmartInputKind('nextjs.org/docs');
+  assert.equal(domainPath.kind, 'url');
+  if (domainPath.kind === 'url') {
+    assert.equal(domainPath.normalizedUrl, 'https://nextjs.org/docs');
+  }
+
+  const youtube = detectSmartInputKind('https://www.youtube.com/watch?v=M7lc1UVf-VE');
+  assert.equal(youtube.kind, 'url');
+
+  const localBlocked = detectSmartInputKind('http://localhost:3000');
+  assert.equal(localBlocked.kind, 'invalid');
+});
+
 
 
 

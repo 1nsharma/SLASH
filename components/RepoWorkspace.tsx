@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import {
+  ChevronDown,
   Code2,
   Cpu,
   Database,
@@ -48,17 +49,24 @@ interface RepoWorkspaceProps {
   onApproveProposal?: (proposal: CopilotActionProposal) => Promise<void> | void;
 }
 
-const VIEW_ITEMS: Array<{
+const PRIMARY_VIEW_ITEMS: Array<{
   id: WorkspaceView;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
 }> = [
-  { id: 'map', label: 'Architecture Map', icon: Network },
+  { id: 'map', label: 'Visual Map', icon: Network },
+  { id: 'ask', label: 'AI Copilot', icon: MessageSquare },
+];
+
+const DETAIL_VIEW_ITEMS: Array<{
+  id: WorkspaceView;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}> = [
   { id: 'sitemap', label: 'Tree & Routes', icon: FolderTree },
   { id: 'flows', label: 'Module Flows', icon: GitBranch },
   { id: 'tech', label: 'Dependencies & Tech', icon: Cpu },
   { id: 'explainer', label: '60s Explainer', icon: PlayCircle },
-  { id: 'ask', label: 'SLASH Copilot', icon: MessageSquare },
   { id: 'export', label: 'Export Report', icon: Download },
 ];
 
@@ -76,6 +84,8 @@ export default function RepoWorkspace({
   onApproveProposal,
 }: RepoWorkspaceProps) {
   const [askNodePrompt, setAskNodePrompt] = useState<string | null>(null);
+  const isDetailActive = DETAIL_VIEW_ITEMS.some((v) => v.id === activeView);
+  const [detailsOpen, setDetailsOpen] = useState(isDetailActive);
 
   const adaptedReport: UrlIntelligenceReport = useMemo(
     () => ({
@@ -152,7 +162,7 @@ export default function RepoWorkspace({
           </div>
 
           <nav aria-label="Repo intelligence views" className="space-y-1">
-            {VIEW_ITEMS.map((item) => {
+            {PRIMARY_VIEW_ITEMS.map((item) => {
               const Icon = item.icon;
               const active = activeView === item.id;
               return (
@@ -172,6 +182,48 @@ export default function RepoWorkspace({
                 </button>
               );
             })}
+
+            <div className="pt-2">
+              <button
+                type="button"
+                aria-expanded={detailsOpen || isDetailActive}
+                onClick={() => setDetailsOpen((prev) => !prev)}
+                className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-lg cursor-pointer"
+              >
+                <span>Details &amp; Export</span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 transition-transform ${
+                    detailsOpen || isDetailActive ? 'rotate-180' : ''
+                  }`}
+                  aria-hidden="true"
+                />
+              </button>
+
+              {(detailsOpen || isDetailActive) && (
+                <div className="mt-1 space-y-1 pl-1">
+                  {DETAIL_VIEW_ITEMS.map((item) => {
+                    const Icon = item.icon;
+                    const active = activeView === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => onSelectView(item.id)}
+                        aria-current={active ? 'true' : undefined}
+                        className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+                          active
+                            ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300'
+                            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60'
+                        }`}
+                      >
+                        <Icon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                        <span className="truncate">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </nav>
 
           <button
@@ -180,7 +232,7 @@ export default function RepoWorkspace({
             className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors cursor-pointer"
           >
             <Share2 className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Unify in Graph Engine</span>
+            <span>Unify in Business Grid</span>
           </button>
 
           {repoHistory.length > 1 && (

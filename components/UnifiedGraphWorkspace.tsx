@@ -5,7 +5,10 @@ import Markdown from 'react-markdown';
 import {
   AlertCircle,
   AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
   Braces,
+  ChevronDown,
   Code2,
   Database,
   Download,
@@ -15,16 +18,16 @@ import {
   GitBranch,
   Globe,
   History,
+  LayoutGrid,
   Link2,
   Loader2,
   Lock,
   LogOut,
-  MessageSquare,
   Network,
   Plus,
+  Rocket,
   Sparkles,
   Trash2,
-  Wrench,
 } from 'lucide-react';
 import { BUSINESS_ZONE_META } from '@/lib/business/zones';
 import {
@@ -46,8 +49,10 @@ import ArchitectureMap from './ArchitectureMap';
 import AskUrlChat from './AskUrlChat';
 import BusinessGridPanel from './BusinessGridPanel';
 import ComposerStudio from './ComposerStudio';
+import type { UnifiedFocusTab } from './TopNav';
 
 type ResourceTabKind = 'url' | 'repo' | 'openapi' | 'database' | 'document';
+type BuildSubView = 'grid_copilot' | 'map' | 'details';
 
 interface GitHubRepoListItem {
   id: number;
@@ -61,6 +66,9 @@ interface GitHubRepoListItem {
 
 interface UnifiedGraphWorkspaceProps {
   project: UnifiedGraphProject | null;
+  focusTab: UnifiedFocusTab;
+  onChangeFocusTab: (tab: UnifiedFocusTab) => void;
+  onBackToConnect: () => void;
   urlHistory: UrlIntelligenceReport[];
   repoHistory: RepoIntelligenceReport[];
   onAttachUrl: (url: string, options?: { usePreset?: boolean }) => Promise<void>;
@@ -90,6 +98,9 @@ interface UnifiedGraphWorkspaceProps {
 
 export default function UnifiedGraphWorkspace({
   project,
+  focusTab,
+  onChangeFocusTab,
+  onBackToConnect,
   urlHistory,
   repoHistory,
   onAttachUrl,
@@ -107,9 +118,9 @@ export default function UnifiedGraphWorkspace({
   const [resourceKind, setResourceKind] = useState<ResourceTabKind>('url');
   const [resourceInput, setResourceInput] = useState('');
   const [connectorPayload, setConnectorPayload] = useState('');
-  const [activeTab, setActiveTab] = useState<'graph' | 'composer' | 'copilot'>(
-    'graph',
-  );
+  const [connectorOpen, setConnectorOpen] = useState(false);
+  const [buildSubView, setBuildSubView] =
+    useState<BuildSubView>('grid_copilot');
   const [copilotPrompt, setCopilotPrompt] = useState<string | null>(null);
 
   // GitHub OAuth session state (token never leaves server cookies)
@@ -267,7 +278,8 @@ export default function UnifiedGraphWorkspace({
     setCopilotPrompt(
       `Explain how "${node.label}" (${node.sourceEngine || 'unified'}) connects across this unified project graph and what evidence supports its edges.`,
     );
-    setActiveTab('copilot');
+    onChangeFocusTab('build');
+    setBuildSubView('grid_copilot');
   };
 
   const triggerDownload = (filename: string, content: string, mime: string) => {
@@ -314,347 +326,349 @@ export default function UnifiedGraphWorkspace({
     resourceKind === 'database' ||
     resourceKind === 'document';
 
-  return (
-    <div className="max-w-[1440px] mx-auto px-4 sm:px-6 py-6 space-y-5">
-      {/* Unified Header & Multi-Source Connector */}
-      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-4">
-        <div className="flex flex-col gap-3">
-          <div>
+  // Clean Empty State when user clicks Step 2 or Step 3 before adding any sources
+  if (!project || !adaptedReport) {
+    return (
+      <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-10">
+        <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-8 sm:p-12 text-center space-y-4">
+          <Link2 className="w-8 h-8 text-blue-600 mx-auto" aria-hidden="true" />
+          <div className="space-y-2 max-w-lg mx-auto">
             <p className="text-xs font-medium text-blue-600 dark:text-blue-400">
-              Universal Digital Integration &amp; App Composer
+              {focusTab === 'launch' ? 'Step 3 of 3 · Launch' : 'Step 2 of 3 · Build & Fix'}
             </p>
             <h1 className="font-display text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
-              {project ? project.title : 'SLASH Unified Intelligence Graph'}
+              No business sources connected yet
             </h1>
-            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-              {project
-                ? project.summary
-                : 'Connect URLs, GitHub repositories, OpenAPI specs, database schemas, and docs into one graph and composed application.'}
+            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+              Load our interactive Demo Business stack to explore the 4-Zone
+              Grid and AI Copilot immediately, or go back to Step 1 to connect
+              your own website, repository, or API.
             </p>
           </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {project && (
-              <>
-                <div
-                  role="group"
-                  aria-label="Unified workspace view"
-                  className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg"
-                >
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('graph')}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md cursor-pointer ${
-                      activeTab === 'graph'
-                        ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-                        : 'text-slate-600 dark:text-slate-400'
-                    }`}
-                  >
-                    <Network className="w-3.5 h-3.5" aria-hidden="true" />
-                    <span>Unified Graph</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('composer')}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md cursor-pointer ${
-                      activeTab === 'composer'
-                        ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-                        : 'text-slate-600 dark:text-slate-400'
-                    }`}
-                  >
-                    <Wrench className="w-3.5 h-3.5" aria-hidden="true" />
-                    <span>App Composer</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('copilot')}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md cursor-pointer ${
-                      activeTab === 'copilot'
-                        ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-                        : 'text-slate-600 dark:text-slate-400'
-                    }`}
-                  >
-                    <MessageSquare className="w-3.5 h-3.5" aria-hidden="true" />
-                    <span>AI Copilot</span>
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleDownloadBlueprintJson}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
-                >
-                  <FileJson
-                    className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400"
-                    aria-hidden="true"
-                  />
-                  <span>Blueprint JSON</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleDownloadMermaid}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
-                >
-                  <FileCode2
-                    className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400"
-                    aria-hidden="true"
-                  />
-                  <span>Mermaid (.mmd)</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleDownloadBlueprint}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>Export Blueprint</span>
-                </button>
-              </>
-            )}
-
+          <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
             <button
               type="button"
               disabled={isBusy}
               onClick={() => void onLaunchSampleUnified()}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 rounded-lg cursor-pointer"
+              className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 rounded-lg cursor-pointer"
             >
-              <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
-              <span>Load Demo Pair (Docs + Repo)</span>
+              <Sparkles className="w-4 h-4" aria-hidden="true" />
+              <span>Load Demo Business Stack</span>
             </button>
+            <button
+              type="button"
+              onClick={onBackToConnect}
+              className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" aria-hidden="true" />
+              <span>Back to Step 1: Connect</span>
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-[1440px] mx-auto px-4 sm:px-6 py-6 space-y-5">
+      {/* Streamlined Workspace Header Bar */}
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-5 space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="space-y-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <span className="font-medium text-blue-600 dark:text-blue-400">
+                {focusTab === 'launch'
+                  ? 'Step 3 of 3 · Launch Project'
+                  : 'Step 2 of 3 · Build & Fix'}
+              </span>
+              <span aria-hidden="true">·</span>
+              <span className="font-mono tabular-nums">
+                {project.sources.length} connected source(s)
+              </span>
+              <span aria-hidden="true">·</span>
+              <span className="font-mono tabular-nums text-emerald-700 dark:text-emerald-400">
+                {project.crossLinksCount} bridge(s)
+              </span>
+            </div>
+            <h1 className="font-display text-lg sm:text-xl font-bold text-slate-900 dark:text-white truncate">
+              {project.title}
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 line-clamp-2">
+              {project.summary}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              aria-expanded={connectorOpen}
+              onClick={() => setConnectorOpen((prev) => !prev)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer whitespace-nowrap"
+            >
+              <Plus className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Add Source</span>
+              <ChevronDown
+                className={`w-3.5 h-3.5 transition-transform ${
+                  connectorOpen ? 'rotate-180' : ''
+                }`}
+                aria-hidden="true"
+              />
+            </button>
+
+            {focusTab === 'build' ? (
+              <button
+                type="button"
+                onClick={() => onChangeFocusTab('launch')}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg cursor-pointer whitespace-nowrap"
+              >
+                <Rocket className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Continue to Step 3: Launch</span>
+                <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onChangeFocusTab('build')}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer whitespace-nowrap"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Back to Step 2: Build &amp; Fix</span>
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Multi-Source Connector Bar */}
-        <form
-          onSubmit={handleAttachSubmit}
-          className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
-              {(
-                [
-                  { id: 'url', label: 'URLmind Target', icon: Globe },
-                  { id: 'repo', label: 'GitHub Repo', icon: Code2 },
-                  { id: 'openapi', label: 'OpenAPI / Webhook', icon: Braces },
-                  { id: 'database', label: 'DB Schema', icon: Database },
-                  { id: 'document', label: 'Docs / Config', icon: FileText },
-                ] as const
-              ).map((tab) => {
-                const Icon = tab.icon;
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setResourceKind(tab.id)}
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md cursor-pointer ${
-                      resourceKind === tab.id
-                        ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-                        : 'text-slate-600 dark:text-slate-400'
-                    }`}
-                  >
-                    <Icon className="w-3.5 h-3.5" aria-hidden="true" />
-                    <span>{tab.label}</span>
-                  </button>
-                );
-              })}
+        {/* Collapsible Multi-Source Connector Drawer */}
+        {connectorOpen && (
+          <form
+            onSubmit={handleAttachSubmit}
+            className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
+                {(
+                  [
+                    { id: 'url', label: 'Website / URL', icon: Globe },
+                    { id: 'repo', label: 'GitHub Repo', icon: Code2 },
+                    { id: 'openapi', label: 'OpenAPI / API', icon: Braces },
+                    { id: 'database', label: 'DB Schema', icon: Database },
+                    { id: 'document', label: 'Docs / Config', icon: FileText },
+                  ] as const
+                ).map((tab) => {
+                  const Icon = tab.icon;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setResourceKind(tab.id)}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md cursor-pointer ${
+                        resourceKind === tab.id
+                          ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
+                          : 'text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      <Icon className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* GitHub Read-Only OAuth Controls */}
+              <div className="flex flex-wrap items-center gap-2">
+                {ghStatus?.authenticated ? (
+                  <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 text-xs text-emerald-800 dark:text-emerald-300">
+                    <GitBranch className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span className="font-mono">@{ghStatus.login}</span>
+                    <button
+                      type="button"
+                      onClick={() => void handleDisconnectGitHub()}
+                      aria-label="Disconnect GitHub"
+                      className="text-slate-500 hover:text-red-600 cursor-pointer"
+                    >
+                      <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={ghIncludePrivate}
+                        onChange={(e) => setGhIncludePrivate(e.target.checked)}
+                        className="rounded border-slate-300"
+                      />
+                      <span>Include private repos</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => void handleConnectGitHub()}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                    >
+                      <Lock className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>Connect GitHub (Read-Only)</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* GitHub Read-Only OAuth Controls */}
-            <div className="flex flex-wrap items-center gap-2">
-              {ghStatus?.authenticated ? (
-                <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 text-xs text-emerald-800 dark:text-emerald-300">
-                  <GitBranch className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span className="font-mono">@{ghStatus.login}</span>
-                  <button
-                    type="button"
-                    onClick={() => void handleDisconnectGitHub()}
-                    aria-label="Disconnect GitHub"
-                    className="text-slate-500 hover:text-red-600 cursor-pointer"
-                  >
-                    <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={ghIncludePrivate}
-                      onChange={(e) => setGhIncludePrivate(e.target.checked)}
-                      className="rounded border-slate-300"
-                    />
-                    <span>Include private repos</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => void handleConnectGitHub()}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
-                  >
-                    <Lock className="w-3.5 h-3.5" aria-hidden="true" />
-                    <span>Connect GitHub (Read-Only)</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-            <label htmlFor="unified-resource-input" className="sr-only">
-              Resource URL or GitHub repository to connect
-            </label>
-            <input
-              id="unified-resource-input"
-              type="text"
-              value={resourceInput}
-              onChange={(e) => setResourceInput(e.target.value)}
-              disabled={isBusy}
-              placeholder={
-                resourceKind === 'url'
-                  ? 'Connect a public URL (e.g., https://nextjs.org/docs or https://stripe.com)'
-                  : resourceKind === 'repo'
-                    ? 'Connect a public or authorized GitHub repo (e.g., vercel/ai or fastapi/fastapi)'
-                    : resourceKind === 'openapi'
-                      ? 'Optional OpenAPI JSON URL (or paste OpenAPI JSON below)'
-                      : resourceKind === 'database'
-                        ? 'Schema label (e.g., saas-postgres.prisma) — paste DDL/Prisma below'
-                        : 'Config/Doc label (e.g., .env.example) — paste content below'
-              }
-              className="flex-1 px-3.5 py-2 text-xs sm:text-sm font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600"
-            />
-
-            {isTextPayloadMode && (
-              <button
-                type="button"
-                disabled={isBusy}
-                onClick={() =>
-                  void onAttachConnector({
-                    kind:
-                      resourceKind === 'openapi'
-                        ? 'openapi_spec'
-                        : resourceKind === 'database'
-                          ? 'database_schema'
-                          : 'document_pdf',
-                    usePreset: true,
-                  })
-                }
-                className="px-3 py-2 text-xs font-medium border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 bg-blue-50/70 dark:bg-blue-950/30 hover:bg-blue-100/70 rounded-lg cursor-pointer shrink-0"
-              >
-                Load Sample{' '}
-                {resourceKind === 'openapi'
-                  ? 'OpenAPI'
-                  : resourceKind === 'database'
-                    ? 'Schema'
-                    : 'Config'}
-              </button>
-            )}
-
-            <button
-              type="submit"
-              disabled={
-                isBusy ||
-                (!resourceInput.trim() && !connectorPayload.trim())
-              }
-              className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-500 disabled:opacity-50 rounded-lg cursor-pointer shrink-0"
-            >
-              {isBusy ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
-              ) : (
-                <Plus className="w-3.5 h-3.5" aria-hidden="true" />
-              )}
-              <span>Connect to Graph</span>
-            </button>
-          </div>
-
-          {isTextPayloadMode && (
-            <div>
-              <label htmlFor="connector-raw-payload" className="sr-only">
-                Connector payload content
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <label htmlFor="unified-resource-input" className="sr-only">
+                Resource URL or GitHub repository to connect
               </label>
-              <textarea
-                id="connector-raw-payload"
-                rows={3}
-                value={connectorPayload}
-                onChange={(e) => setConnectorPayload(e.target.value)}
+              <input
+                id="unified-resource-input"
+                type="text"
+                value={resourceInput}
+                onChange={(e) => setResourceInput(e.target.value)}
                 disabled={isBusy}
                 placeholder={
-                  resourceKind === 'openapi'
-                    ? 'Paste OpenAPI 3.x JSON specification...'
-                    : resourceKind === 'database'
-                      ? 'Paste SQL CREATE TABLE DDL or Prisma schema models (no live DB credentials needed)...'
-                      : 'Paste Markdown docs or .env.example (secret values are automatically redacted)...'
+                  resourceKind === 'url'
+                    ? 'Connect a public URL (e.g., https://nextjs.org/docs or https://stripe.com)'
+                    : resourceKind === 'repo'
+                      ? 'Connect a GitHub repo (e.g., vercel/ai or fastapi/fastapi)'
+                      : resourceKind === 'openapi'
+                        ? 'Optional OpenAPI JSON URL (or paste OpenAPI JSON below)'
+                        : resourceKind === 'database'
+                          ? 'Schema label (e.g., saas-postgres.prisma) — paste DDL/Prisma below'
+                          : 'Config/Doc label (e.g., .env.example) — paste content below'
                 }
-                className="w-full px-3.5 py-2 text-xs font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="flex-1 px-3.5 py-2 text-xs sm:text-sm font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
-            </div>
-          )}
-        </form>
 
-        {/* Authenticated GitHub Repos Picker */}
-        {ghStatus?.authenticated && (ghRepos.length > 0 || ghLoadingRepos) && (
-          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-slate-500 dark:text-slate-400 font-medium">
-              Your GitHub repos:
-            </span>
-            {ghLoadingRepos ? (
-              <span className="text-slate-400">Loading...</span>
-            ) : (
-              ghRepos.slice(0, 6).map((repo) => (
+              {isTextPayloadMode && (
                 <button
-                  key={repo.id}
                   type="button"
                   disabled={isBusy}
-                  onClick={() => void onAttachRepo(repo.fullName)}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-200 dark:border-slate-700 hover:border-blue-500 font-mono text-[11px] text-slate-700 dark:text-slate-300 cursor-pointer"
+                  onClick={() =>
+                    void onAttachConnector({
+                      kind:
+                        resourceKind === 'openapi'
+                          ? 'openapi_spec'
+                          : resourceKind === 'database'
+                            ? 'database_schema'
+                            : 'document_pdf',
+                      usePreset: true,
+                    })
+                  }
+                  className="px-3 py-2 text-xs font-medium border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 bg-blue-50/70 dark:bg-blue-950/30 hover:bg-blue-100/70 rounded-lg cursor-pointer shrink-0"
                 >
-                  {repo.isPrivate && (
-                    <Lock className="w-3 h-3 text-amber-600" aria-hidden="true" />
-                  )}
-                  <span>+ {repo.fullName}</span>
+                  Load Sample{' '}
+                  {resourceKind === 'openapi'
+                    ? 'OpenAPI'
+                    : resourceKind === 'database'
+                      ? 'Schema'
+                      : 'Config'}
                 </button>
-              ))
+              )}
+
+              <button
+                type="submit"
+                disabled={
+                  isBusy ||
+                  (!resourceInput.trim() && !connectorPayload.trim())
+                }
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-500 disabled:opacity-50 rounded-lg cursor-pointer shrink-0"
+              >
+                {isBusy ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Plus className="w-3.5 h-3.5" aria-hidden="true" />
+                )}
+                <span>Attach</span>
+              </button>
+            </div>
+
+            {isTextPayloadMode && (
+              <div>
+                <label htmlFor="connector-raw-payload" className="sr-only">
+                  Connector payload content
+                </label>
+                <textarea
+                  id="connector-raw-payload"
+                  rows={3}
+                  value={connectorPayload}
+                  onChange={(e) => setConnectorPayload(e.target.value)}
+                  disabled={isBusy}
+                  placeholder={
+                    resourceKind === 'openapi'
+                      ? 'Paste OpenAPI 3.x JSON specification...'
+                      : resourceKind === 'database'
+                        ? 'Paste SQL CREATE TABLE DDL or Prisma schema models...'
+                        : 'Paste Markdown docs or .env.example (secret values are automatically redacted)...'
+                  }
+                  className="w-full px-3.5 py-2 text-xs font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
+              </div>
             )}
-          </div>
-        )}
 
-        {ghNotice && (
-          <p className="text-xs font-mono text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-3 py-2 rounded-lg">
-            {ghNotice}
-          </p>
-        )}
+            {/* Authenticated GitHub Repos Picker */}
+            {ghStatus?.authenticated && (ghRepos.length > 0 || ghLoadingRepos) && (
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-slate-500 dark:text-slate-400 font-medium">
+                  Your GitHub repos:
+                </span>
+                {ghLoadingRepos ? (
+                  <span className="text-slate-400">Loading...</span>
+                ) : (
+                  ghRepos.slice(0, 6).map((repo) => (
+                    <button
+                      key={repo.id}
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => void onAttachRepo(repo.fullName)}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-200 dark:border-slate-700 hover:border-blue-500 font-mono text-[11px] text-slate-700 dark:text-slate-300 cursor-pointer"
+                    >
+                      {repo.isPrivate && (
+                        <Lock className="w-3 h-3 text-amber-600" aria-hidden="true" />
+                      )}
+                      <span>+ {repo.fullName}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
 
-        {/* Quick attach from history */}
-        {(urlHistory.length > 0 || repoHistory.length > 0) && (
-          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-            <span>Attach from history:</span>
-            {urlHistory.slice(0, 3).map((u) => (
-              <button
-                key={u.id}
-                type="button"
-                disabled={isBusy}
-                onClick={() =>
-                  void onAttachUrl(u.normalizedUrl, { usePreset: true })
-                }
-                className="px-2 py-1 rounded border border-slate-200 dark:border-slate-700 hover:border-blue-500 font-mono text-[11px] text-slate-700 dark:text-slate-300 cursor-pointer"
-              >
-                + URL: {u.domain}
-              </button>
-            ))}
-            {repoHistory.slice(0, 3).map((r) => (
-              <button
-                key={r.id}
-                type="button"
-                disabled={isBusy}
-                onClick={() =>
-                  void onAttachRepo(r.normalizedUrl, { usePreset: true })
-                }
-                className="px-2 py-1 rounded border border-slate-200 dark:border-slate-700 hover:border-blue-500 font-mono text-[11px] text-slate-700 dark:text-slate-300 cursor-pointer"
-              >
-                + Repo: {r.fullName}
-              </button>
-            ))}
-          </div>
+            {ghNotice && (
+              <p className="text-xs font-mono text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-3 py-2 rounded-lg">
+                {ghNotice}
+              </p>
+            )}
+
+            {/* Quick attach from history */}
+            {(urlHistory.length > 0 || repoHistory.length > 0) && (
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <span>Recent scans:</span>
+                {urlHistory.slice(0, 3).map((u) => (
+                  <button
+                    key={u.id}
+                    type="button"
+                    disabled={isBusy}
+                    onClick={() =>
+                      void onAttachUrl(u.normalizedUrl, { usePreset: true })
+                    }
+                    className="px-2 py-1 rounded border border-slate-200 dark:border-slate-700 hover:border-blue-500 font-mono text-[11px] text-slate-700 dark:text-slate-300 cursor-pointer"
+                  >
+                    + {u.domain}
+                  </button>
+                ))}
+                {repoHistory.slice(0, 3).map((r) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    disabled={isBusy}
+                    onClick={() =>
+                      void onAttachRepo(r.normalizedUrl, { usePreset: true })
+                    }
+                    className="px-2 py-1 rounded border border-slate-200 dark:border-slate-700 hover:border-blue-500 font-mono text-[11px] text-slate-700 dark:text-slate-300 cursor-pointer"
+                  >
+                    + {r.fullName}
+                  </button>
+                ))}
+              </div>
+            )}
+          </form>
         )}
 
         {errorMessage && (
@@ -668,198 +682,119 @@ export default function UnifiedGraphWorkspace({
         )}
       </section>
 
-      {!project || !adaptedReport ? (
-        <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-10 text-center space-y-3">
-          <Link2 className="w-8 h-8 text-blue-600 mx-auto" aria-hidden="true" />
-          <h2 className="font-display text-base font-semibold text-slate-900 dark:text-white">
-            No resources unified yet
-          </h2>
-          <p className="text-xs text-slate-600 dark:text-slate-400 max-w-lg mx-auto leading-relaxed">
-            Connect any URL, GitHub repository, OpenAPI spec, database schema,
-            or config file above—or load the pre-linked Demo Pair to explore
-            cross-engine bridges and launch the App Composer.
-          </p>
-        </section>
-      ) : (
-        <>
-          {/* Connected Sources & Shared Stack Strip (full cards on Graph tab, compact strip on Composer/Copilot) */}
-          {activeTab === 'graph' ? (
-            <section className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-              <div className="lg:col-span-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h2 className="font-display text-sm font-semibold text-slate-900 dark:text-white whitespace-nowrap">
-                    Connected Resources ({project.sources.length})
-                  </h2>
-                <span className="text-xs font-mono text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
-                  {project.crossLinksCount} cross-engine bridge(s)
-                </span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {project.sources.map((src) => (
-                  <div
-                    key={src.id}
-                    className="flex items-center justify-between gap-2 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-blue-600 dark:text-blue-400">
-                        <span>
-                          {src.kind === 'repo'
-                            ? 'Repo Engine'
-                            : src.kind === 'connector'
-                              ? 'Connector'
-                              : 'URLmind Engine'}
-                        </span>
-                        {src.businessZone && (
-                          <>
-                            <span>·</span>
-                            <span className="text-slate-700 dark:text-slate-300">
-                              {BUSINESS_ZONE_META[src.businessZone].shortLabel} Zone
-                            </span>
-                          </>
-                        )}
-                        <span>·</span>
-                        <span>{src.categoryOrLanguage}</span>
-                        {src.licenseSpdx && (
-                          <>
-                            <span>·</span>
-                            <span className="font-mono text-slate-600 dark:text-slate-300">
-                              {src.licenseSpdx}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                      <p className="font-mono text-xs font-semibold text-slate-900 dark:text-white truncate">
-                        {src.label}
-                      </p>
-                      <p className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                        {src.nodeCount} nodes ({src.detectedCount} detected)
-                        {src.authScheme ? ` · ${src.authScheme}` : ''}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      aria-label={`Remove ${src.label} from unified graph`}
-                      onClick={() => onRemoveSource(src.id)}
-                      className="p-1.5 text-slate-400 hover:text-red-600 rounded cursor-pointer shrink-0"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
+      {/* Compatibility & Safety Banners */}
+      {project.conflicts && project.conflicts.length > 0 && focusTab === 'build' && (
+        <div
+          role="status"
+          className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-3 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/30 text-xs text-amber-900 dark:text-amber-200"
+        >
+          <div className="flex items-start gap-2">
+            <AlertTriangle
+              className="w-4 h-4 mt-0.5 shrink-0"
+              aria-hidden="true"
+            />
+            <div>
+              <p className="font-semibold">
+                {project.conflicts.length} Compatibility Check(s) Flagged
+              </p>
+              <p>{project.conflicts.map((c) => c.title).join(' · ')}</p>
             </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onChangeFocusTab('launch')}
+            className="px-3 py-1.5 text-xs font-semibold bg-amber-600 text-white rounded-lg hover:bg-amber-700 cursor-pointer shrink-0"
+          >
+            Review in Launch
+          </button>
+        </div>
+      )}
 
-            <div className="lg:col-span-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-2">
-              <h2 className="font-display text-sm font-semibold text-slate-900 dark:text-white">
-                Shared Technology Bridges
-              </h2>
-              {project.sharedTech.length === 0 ? (
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Connect multiple sources to detect shared dependencies, APIs,
-                  and integration adapters.
-                </p>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {project.sharedTech.map((tech) => (
-                    <span
-                      key={tech}
-                      className="px-2 py-1 text-xs font-mono rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/60"
-                    >
-                      {tech}
-                    </span>
-                  ))}
-                </div>
-              )}
-              {project.aiSynthesis && (
-                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300 prose prose-xs dark:prose-invert max-w-none">
-                  <Markdown>{project.aiSynthesis}</Markdown>
-                </div>
-              )}
-            </div>
-          </section>
-          ) : (
-            <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-semibold text-slate-900 dark:text-white">
-                  Connected Resources ({project.sources.length}):
-                </span>
-                {project.sources.map((src) => (
-                  <span
-                    key={src.id}
-                    className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-[11px] text-slate-700 dark:text-slate-200"
-                  >
-                    <span>{src.label}</span>
-                  </span>
-                ))}
-              </div>
-              <span className="font-mono text-emerald-700 dark:text-emerald-400">
-                {project.crossLinksCount} cross-engine bridge(s)
-              </span>
-            </section>
-          )}
+      {project.truncationWarnings && project.truncationWarnings.length > 0 && (
+        <div
+          role="status"
+          className="flex items-start gap-2.5 px-4 py-3 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/30 text-xs text-amber-800 dark:text-amber-300"
+        >
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+          <div className="space-y-0.5">
+            <p className="font-semibold">Repository Safety Limits Applied</p>
+            <p>{project.truncationWarnings.join(' ')}</p>
+          </div>
+        </div>
+      )}
 
-          {/* Compatibility & Conflict Banner */}
-          {project.conflicts && project.conflicts.length > 0 && (
+      {/* STEP 2: BUILD & FIX */}
+      {focusTab === 'build' ? (
+        <div className="space-y-4">
+          {/* Sub-view Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div
-              role="status"
-              className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-3 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/30 text-xs text-amber-900 dark:text-amber-200"
+              role="tablist"
+              aria-label="Build and inspect views"
+              className="inline-flex flex-wrap items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-800"
             >
-              <div className="flex items-start gap-2">
-                <AlertTriangle
-                  className="w-4 h-4 mt-0.5 shrink-0"
-                  aria-hidden="true"
-                />
-                <div>
-                  <p className="font-semibold">
-                    {project.conflicts.length} Compatibility / Architecture Check(s) Flagged
-                  </p>
-                  <p>{project.conflicts.map((c) => c.title).join(' · ')}</p>
-                </div>
-              </div>
               <button
                 type="button"
-                onClick={() => setActiveTab('composer')}
-                className="px-3 py-1.5 text-xs font-semibold bg-amber-600 text-white rounded-lg hover:bg-amber-700 cursor-pointer shrink-0"
+                role="tab"
+                aria-selected={buildSubView === 'grid_copilot'}
+                onClick={() => setBuildSubView('grid_copilot')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md cursor-pointer ${
+                  buildSubView === 'grid_copilot'
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
               >
-                Resolve in App Composer
+                <LayoutGrid className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Business Grid + AI Copilot</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={buildSubView === 'map'}
+                onClick={() => setBuildSubView('map')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md cursor-pointer ${
+                  buildSubView === 'map'
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Network className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Architecture Map</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={buildSubView === 'details'}
+                onClick={() => setBuildSubView('details')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md cursor-pointer ${
+                  buildSubView === 'details'
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <History className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Sources &amp; Exports</span>
               </button>
             </div>
-          )}
 
-          {project.truncationWarnings && project.truncationWarnings.length > 0 && (
-            <div
-              role="status"
-              className="flex items-start gap-2.5 px-4 py-3 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/30 text-xs text-amber-800 dark:text-amber-300"
-            >
-              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
-              <div className="space-y-0.5">
-                <p className="font-semibold">Repository Safety Limits Applied</p>
-                <p>{project.truncationWarnings.join(' ')}</p>
+            <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <span>Connected:</span>
+              <span className="font-mono text-slate-800 dark:text-slate-200 truncate max-w-md">
+                {project.sources.map((s) => s.label).join(' · ')}
+              </span>
+            </div>
+          </div>
+
+          {buildSubView === 'grid_copilot' && (
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+              <div className="xl:col-span-7">
+                <BusinessGridPanel
+                  project={project}
+                  onAddBusinessBlock={onAddBusinessBlock}
+                  isBusy={isBusy}
+                />
               </div>
-            </div>
-          )}
-
-          {activeTab === 'graph' ? (
-            <div className="space-y-4">
-              <BusinessGridPanel
-                project={project}
-                onAddBusinessBlock={onAddBusinessBlock}
-                isBusy={isBusy}
-              />
-              <ArchitectureMap
-                report={adaptedReport}
-                onAskAboutNode={handleAskAboutNode}
-                isDark={isDark}
-              />
-            </div>
-          ) : activeTab === 'composer' ? (
-            <ComposerStudio
-              project={project}
-              onUpdateProject={onUpdateProject}
-            />
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-              <div className="lg:col-span-7">
+              <div className="xl:col-span-5">
                 <AskUrlChat
                   key={`${project.id}-${copilotPrompt ?? ''}`}
                   unifiedProject={project}
@@ -867,36 +802,150 @@ export default function UnifiedGraphWorkspace({
                   onApproveProposal={onApproveProposal}
                 />
               </div>
-              <div className="lg:col-span-5">
-                <BusinessGridPanel
-                  project={project}
-                  onAddBusinessBlock={onAddBusinessBlock}
-                  isBusy={isBusy}
-                  compact
-                />
-              </div>
             </div>
           )}
 
-          {project.auditLog && project.auditLog.length > 0 && (
-            <section
-              aria-label="Graph action audit trail"
-              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-2"
-            >
-              <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
-                <History className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
-                <span>Action Audit Log ({project.auditLog.length})</span>
-              </div>
-              <ul className="space-y-1 text-xs font-mono text-slate-600 dark:text-slate-400">
-                {project.auditLog.slice(0, 6).map((entry) => (
-                  <li key={entry.id} className="truncate">
-                    [{entry.actor}] {entry.action} — {entry.target}
-                  </li>
-                ))}
-              </ul>
-            </section>
+          {buildSubView === 'map' && (
+            <ArchitectureMap
+              report={adaptedReport}
+              onAskAboutNode={handleAskAboutNode}
+              isDark={isDark}
+            />
           )}
-        </>
+
+          {buildSubView === 'details' && (
+            <div className="space-y-4">
+              <section className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                <div className="lg:col-span-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h2 className="font-display text-sm font-semibold text-slate-900 dark:text-white">
+                      Connected Resources ({project.sources.length})
+                    </h2>
+                    <span className="text-xs font-mono tabular-nums text-emerald-700 dark:text-emerald-400">
+                      {project.crossLinksCount} cross-engine bridge(s)
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {project.sources.map((src) => (
+                      <div
+                        key={src.id}
+                        className="flex items-center justify-between gap-2 p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-blue-600 dark:text-blue-400">
+                            <span>
+                              {src.kind === 'repo'
+                                ? 'Repo'
+                                : src.kind === 'connector'
+                                  ? 'Connector'
+                                  : 'Website'}
+                            </span>
+                            {src.businessZone && (
+                              <>
+                                <span>·</span>
+                                <span className="text-slate-700 dark:text-slate-300">
+                                  {BUSINESS_ZONE_META[src.businessZone].shortLabel}
+                                </span>
+                              </>
+                            )}
+                            <span>·</span>
+                            <span>{src.categoryOrLanguage}</span>
+                          </div>
+                          <p className="font-mono text-xs font-semibold text-slate-900 dark:text-white truncate">
+                            {src.label}
+                          </p>
+                          <p className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
+                            {src.nodeCount} nodes ({src.detectedCount} detected)
+                            {src.authScheme ? ` · ${src.authScheme}` : ''}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${src.label} from unified graph`}
+                          onClick={() => onRemoveSource(src.id)}
+                          className="p-1.5 text-slate-400 hover:text-red-600 rounded cursor-pointer shrink-0"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="lg:col-span-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-3">
+                  <h2 className="font-display text-sm font-semibold text-slate-900 dark:text-white">
+                    Blueprint Exports &amp; Shared Tech
+                  </h2>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDownloadBlueprintJson}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                    >
+                      <FileJson className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" />
+                      <span>JSON</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDownloadMermaid}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                    >
+                      <FileCode2 className="w-3.5 h-3.5 text-blue-600" aria-hidden="true" />
+                      <span>Mermaid (.mmd)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDownloadBlueprint}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>Markdown</span>
+                    </button>
+                  </div>
+
+                  {project.sharedTech.length > 0 && (
+                    <p className="text-xs font-mono text-slate-600 dark:text-slate-300 pt-2 border-t border-slate-100 dark:border-slate-800">
+                      Shared: {project.sharedTech.join(' · ')}
+                    </p>
+                  )}
+
+                  {project.aiSynthesis && (
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300 prose prose-xs dark:prose-invert max-w-none">
+                      <Markdown>{project.aiSynthesis}</Markdown>
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {project.auditLog && project.auditLog.length > 0 && (
+                <section
+                  aria-label="Graph action audit trail"
+                  className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-2"
+                >
+                  <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    <History className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
+                    <span>Action Audit Log ({project.auditLog.length})</span>
+                  </div>
+                  <ul className="space-y-1 text-xs font-mono text-slate-600 dark:text-slate-400">
+                    {project.auditLog.slice(0, 6).map((entry) => (
+                      <li key={entry.id} className="truncate">
+                        [{entry.actor}] {entry.action} — {entry.target}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+        /* STEP 3: LAUNCH */
+        <div className="space-y-4">
+          <ComposerStudio
+            project={project}
+            onUpdateProject={onUpdateProject}
+          />
+        </div>
       )}
     </div>
   );

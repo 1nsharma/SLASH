@@ -74,13 +74,7 @@ export default function BusinessGridPanel({
       </div>
 
       {/* 4 Business Zones */}
-      <div
-        className={
-          compact
-            ? 'grid grid-cols-1 sm:grid-cols-2 gap-3'
-            : 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3'
-        }
-      >
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {ZONE_ORDER.map((zoneId) => {
           const meta = BUSINESS_ZONE_META[zoneId];
           const Icon = ZONE_ICONS[zoneId];
@@ -109,7 +103,7 @@ export default function BusinessGridPanel({
                   </h3>
                 </div>
                 <span className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 shrink-0">
-                  {zoneNodes.length} nodes
+                  {zoneNodes.length} {zoneNodes.length === 1 ? 'node' : 'nodes'}
                 </span>
               </div>
 

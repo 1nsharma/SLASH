@@ -5,31 +5,29 @@ import {
   AlertCircle,
   ArrowRight,
   BookOpen,
+  Bot,
   CheckCircle2,
+  ChevronDown,
   Code2,
+  Database,
   FileCode2,
   FileSpreadsheet,
   GitBranch,
   Globe,
+  Layers,
+  Layout,
   Loader2,
-  Network,
   RefreshCw,
-  ShieldAlert,
-  Sparkles,
+  ShieldCheck,
   Upload,
 } from 'lucide-react';
-import {
-  classifyUrl,
-  getCategoryLabel,
-  normalizeAndValidateUrl,
-} from '@/lib/classifier';
 import {
   buildReportFromTechCsv,
   SAMPLE_WAPPALYZER_CSV,
 } from '@/lib/csvImporter';
-import { parseGitHubRepoUrl } from '@/lib/repo/parser';
 import { REPO_PRESET_METAS } from '@/lib/repo/presets';
 import { SHOWCASE_PRESET_METAS } from '@/lib/showcasePresets';
+import { detectSmartInputKind } from '@/lib/smartInput';
 import type { UrlIntelligenceReport } from '@/lib/types';
 
 interface UrlAnalyzerLandingProps {
@@ -48,32 +46,67 @@ interface UrlAnalyzerLandingProps {
   errorMessage: string | null;
 }
 
-const PIPELINE_STEPS = [
+const PROGRESS_STEPS = [
   {
     step: '01',
-    title: 'Classifier & Adapter',
-    detail:
-      'Routes Website, Web App, GitHub Repo, API Spec, Docs, YouTube, or Social targets.',
+    title: 'Inspect Link or Repo',
+    detail: 'Identifies website pages, API docs, or GitHub repository manifests.',
   },
   {
     step: '02',
-    title: 'Deep Crawl / Repo Tree',
-    detail:
-      'Checks server cache, inspects HTML/Jina/OpenAPI/oEmbed or GitHub git trees & manifests.',
+    title: 'Extract Components',
+    detail: 'Reads routes, packages, integrations, and page structure.',
   },
   {
     step: '03',
-    title: 'AI Intelligence Engine',
-    detail:
-      'Maps interactive React Flow + Mermaid diagrams, workflows, tech stack, and 60s explainer.',
+    title: 'Build Visual Map',
+    detail: 'Creates interactive diagrams, flows, and AI Copilot workspace.',
   },
 ];
 
+const PREVIEW_STAGES = [
+  {
+    id: 'frontend',
+    label: '01. Frontend UI',
+    icon: Layout,
+    scrapName: 'Lovable / Next.js prototype',
+    statusText: 'Connected UI pages & navigation',
+    bridgeOutput: 'Exposes landing page, dashboard routes, and checkout entry.',
+  },
+  {
+    id: 'brain',
+    label: '02. AI Brain',
+    icon: Bot,
+    scrapName: 'vercel/ai or Python API repo',
+    statusText: 'Connected model & agent routes',
+    bridgeOutput: 'Routes /api/gateway/ai/* safely without exposing API keys.',
+  },
+  {
+    id: 'data',
+    label: '03. Shared Memory',
+    icon: Database,
+    scrapName: 'Auto-Bridged Postgres + pgvector',
+    statusText: 'Filled missing database layer',
+    bridgeOutput: 'Adds vector memory schema & Docker Postgres service.',
+  },
+  {
+    id: 'operations',
+    label: '04. Auth & Billing',
+    icon: ShieldCheck,
+    scrapName: 'Auto-Bridged Clerk + Stripe',
+    statusText: 'Filled missing login & checkout',
+    bridgeOutput: 'Wires user sessions, webhook handlers, and .env.bridge.example.',
+  },
+] as const;
+
 function getPresetIcon(id: string) {
-  if (id.includes('github')) return <Code2 className="w-4 h-4 text-slate-600 dark:text-slate-300" />;
-  if (id.includes('petstore')) return <FileCode2 className="w-4 h-4 text-slate-600 dark:text-slate-300" />;
-  if (id.includes('nextjs')) return <BookOpen className="w-4 h-4 text-slate-600 dark:text-slate-300" />;
-  return <Globe className="w-4 h-4 text-slate-600 dark:text-slate-300" />;
+  if (id.includes('github'))
+    return <Code2 className="w-4 h-4 text-slate-500 dark:text-slate-400" />;
+  if (id.includes('petstore'))
+    return <FileCode2 className="w-4 h-4 text-slate-500 dark:text-slate-400" />;
+  if (id.includes('nextjs'))
+    return <BookOpen className="w-4 h-4 text-slate-500 dark:text-slate-400" />;
+  return <Globe className="w-4 h-4 text-slate-500 dark:text-slate-400" />;
 }
 
 export default function UrlAnalyzerLanding({
@@ -85,49 +118,44 @@ export default function UrlAnalyzerLanding({
   pipelineStage,
   errorMessage,
 }: UrlAnalyzerLandingProps) {
-  const [inputMode, setInputMode] = useState<'url' | 'repo' | 'csv'>('url');
-  const [urlInput, setUrlInput] = useState('');
-  const [repoInput, setRepoInput] = useState('');
+  const [smartInput, setSmartInput] = useState('');
   const [forceRefresh, setForceRefresh] = useState(false);
-  const [repoForceRefresh, setRepoForceRefresh] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showCsvForm, setShowCsvForm] = useState(false);
   const [csvDomain, setCsvDomain] = useState('');
   const [csvText, setCsvText] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [selectedPreviewZone, setSelectedPreviewZone] = useState<
+    (typeof PREVIEW_STAGES)[number]['id']
+  >('frontend');
 
-  const trimmed = urlInput.trim();
-  const detectedCategory = trimmed ? classifyUrl(trimmed) : null;
-  const parsedRepoPreview = repoInput.trim()
-    ? parseGitHubRepoUrl(repoInput)
-    : null;
+  const trimmed = smartInput.trim();
+  const detectedPreview = trimmed ? detectSmartInputKind(trimmed) : null;
   const displayError = validationError || errorMessage;
+  const activeStage =
+    PREVIEW_STAGES.find((item) => item.id === selectedPreviewZone) ??
+    PREVIEW_STAGES[0];
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSmartSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const check = normalizeAndValidateUrl(urlInput);
-    if (!check.valid || !check.normalizedUrl) {
-      setValidationError(check.error || 'Enter a valid public URL.');
+    const detected = detectSmartInputKind(smartInput);
+    if (detected.kind === 'invalid') {
+      setValidationError(detected.error);
       return;
     }
+
     setValidationError(null);
-    await onAnalyze(check.normalizedUrl, {
+    if (detected.kind === 'repo') {
+      await onAnalyzeRepo(detected.normalizedUrl, {
+        usePreset: false,
+        forceRefresh,
+      });
+      return;
+    }
+
+    await onAnalyze(detected.normalizedUrl, {
       usePreset: false,
       forceRefresh,
-    });
-  };
-
-  const handleRepoSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const parsed = parseGitHubRepoUrl(repoInput);
-    if (!parsed) {
-      setValidationError(
-        'Enter a valid public GitHub repository (e.g., vercel/ai or https://github.com/vercel/ai).',
-      );
-      return;
-    }
-    setValidationError(null);
-    await onAnalyzeRepo(parsed.normalizedUrl, {
-      usePreset: false,
-      forceRefresh: repoForceRefresh,
     });
   };
 
@@ -141,7 +169,7 @@ export default function UrlAnalyzerLanding({
       setValidationError(
         err instanceof Error
           ? err.message
-          : 'Could not parse Wappalyzer / BuiltWith CSV data.',
+          : 'Could not parse CSV technology rows.',
       );
     }
   };
@@ -161,157 +189,186 @@ export default function UrlAnalyzerLanding({
   };
 
   return (
-    <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-10 sm:py-16">
-      <div className="max-w-3xl mx-auto text-center">
-        <p className="text-xs font-medium tracking-wide text-blue-600 dark:text-blue-400 mb-3">
-          SLASH Repo Unifier · Powered by URLMIND Intelligence Engine
+    <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-10 sm:py-14 space-y-12">
+      {/* Hero + Single Smart Input */}
+      <section className="max-w-3xl mx-auto text-center">
+        <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-3">
+          Step 1 of 3 · Connect any link or codebase
         </p>
         <h1 className="font-display text-3xl sm:text-5xl font-bold tracking-tight text-slate-900 dark:text-white text-balance">
-          Unify any website, codebase, and architecture graph.
+          Connect your unfinished AI projects, websites, and repos into one live
+          business.
         </h1>
         <p className="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed">
-          Convert any public URL, GitHub repository, API documentation, media
-          post, or Wappalyzer CSV into an interactive knowledge graph, Mermaid
-          blueprint, and grounded AI Copilot workspace.
+          Paste any public website, GitHub repository, or API doc below. SLASH
+          maps the architecture, detects missing login, database, and billing
+          pieces, and builds a ready-to-run project.
         </p>
 
-        {/* Mode Switcher */}
-        <div className="mt-7 inline-flex flex-wrap items-center justify-center gap-1 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-lg border border-slate-200 dark:border-slate-800">
-          <button
-            type="button"
-            onClick={() => {
-              setInputMode('url');
-              setValidationError(null);
-            }}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
-              inputMode === 'url'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <Globe className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Analyze URL</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setInputMode('repo');
-              setValidationError(null);
-            }}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
-              inputMode === 'repo'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <Code2 className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Analyze Repo</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setInputMode('csv');
-              setValidationError(null);
-            }}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
-              inputMode === 'csv'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Import Tech CSV</span>
-          </button>
-        </div>
-
-        {inputMode === 'url' ? (
-          <form
-            onSubmit={handleSubmit}
-            noValidate
-            className="mt-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-2 shadow-sm"
-          >
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-              <label htmlFor="urlmind-url-input" className="sr-only">
-                Public URL to analyze
-              </label>
-              <div className="flex-1 flex items-center gap-3 px-3">
+        {/* Single Unified Smart Input */}
+        <form
+          onSubmit={handleSmartSubmit}
+          noValidate
+          className="mt-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-2 shadow-sm"
+        >
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <label htmlFor="slash-smart-input" className="sr-only">
+              Website URL or GitHub repository
+            </label>
+            <div className="flex-1 flex items-center gap-3 px-3">
+              {detectedPreview?.kind === 'repo' ? (
+                <GitBranch
+                  className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0"
+                  aria-hidden="true"
+                />
+              ) : (
                 <Globe
                   className="w-4 h-4 text-slate-400 shrink-0"
                   aria-hidden="true"
                 />
-                <input
-                  id="urlmind-url-input"
-                  type="url"
-                  value={urlInput}
-                  onChange={(e) => {
-                    setUrlInput(e.target.value);
-                    if (validationError) setValidationError(null);
-                  }}
-                  placeholder="https://react.dev, github.com/vercel/ai, or youtube.com/watch?v=..."
-                  disabled={isLoading}
-                  className="w-full py-2.5 text-sm sm:text-base bg-transparent text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none font-mono"
-                />
-              </div>
-
-              <button
-                type="submit"
+              )}
+              <input
+                id="slash-smart-input"
+                type="text"
+                value={smartInput}
+                onChange={(e) => {
+                  setSmartInput(e.target.value);
+                  if (validationError) setValidationError(null);
+                }}
+                placeholder="Paste a Website URL, GitHub repo (vercel/ai), or API link"
                 disabled={isLoading}
-                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-                    <span>Analyzing</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Analyze URL</span>
-                    <ArrowRight className="w-4 h-4" aria-hidden="true" />
-                  </>
-                )}
-              </button>
+                className="w-full py-2.5 text-sm sm:text-base bg-transparent text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none"
+              />
             </div>
 
-            <div className="px-3 pt-2 pb-1 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
-              <div className="flex flex-wrap items-center gap-3">
-                {detectedCategory ? (
-                  <span>
-                    Classifier preview:{' '}
-                    <strong className="font-medium text-slate-800 dark:text-slate-200">
-                      {getCategoryLabel(detectedCategory)}
-                    </strong>
-                  </span>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <span>Quick fill:</span>
-                    <button
-                      type="button"
-                      disabled={isLoading}
-                      onClick={() => {
-                        setValidationError(null);
-                        setUrlInput('https://www.youtube.com/watch?v=M7lc1UVf-VE');
-                      }}
-                      className="font-mono text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
-                    >
-                      YouTube Video
-                    </button>
-                    <span aria-hidden="true">·</span>
-                    <button
-                      type="button"
-                      disabled={isLoading}
-                      onClick={() => {
-                        setValidationError(null);
-                        setUrlInput('https://x.com/vercel');
-                      }}
-                      className="font-mono text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
-                    >
-                      X Profile
-                    </button>
-                  </div>
-                )}
-              </div>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                  <span>Mapping...</span>
+                </>
+              ) : (
+                <>
+                  <span>Analyze &amp; Map</span>
+                  <ArrowRight className="w-4 h-4" aria-hidden="true" />
+                </>
+              )}
+            </button>
+          </div>
 
-              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-slate-600 dark:text-slate-400">
+          <div className="px-3 pt-2 pb-1 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+            <div className="flex flex-wrap items-center gap-2">
+              {detectedPreview && detectedPreview.kind !== 'invalid' ? (
+                <span>
+                  Auto-detected:{' '}
+                  <strong className="font-medium text-slate-800 dark:text-slate-200">
+                    {detectedPreview.label}
+                  </strong>
+                </span>
+              ) : (
+                <>
+                  <span>Try pasting:</span>
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => {
+                      setValidationError(null);
+                      setSmartInput('vercel/ai');
+                    }}
+                    className="font-mono text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                  >
+                    vercel/ai
+                  </button>
+                  <span aria-hidden="true">·</span>
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => {
+                      setValidationError(null);
+                      setSmartInput('https://nextjs.org/docs');
+                    }}
+                    className="font-mono text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                  >
+                    nextjs.org/docs
+                  </button>
+                  <span aria-hidden="true">·</span>
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => {
+                      setValidationError(null);
+                      setSmartInput('https://www.youtube.com/watch?v=M7lc1UVf-VE');
+                    }}
+                    className="font-mono text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                  >
+                    YouTube
+                  </button>
+                  <span aria-hidden="true">·</span>
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => {
+                      setValidationError(null);
+                      setSmartInput('https://x.com/vercel');
+                    }}
+                    className="font-mono text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                  >
+                    X Profile
+                  </button>
+                </>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((prev) => !prev)}
+              aria-expanded={showAdvanced}
+              className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+            >
+              <span>Advanced options</span>
+              <ChevronDown
+                className={`w-3.5 h-3.5 transition-transform ${
+                  showAdvanced ? 'rotate-180' : ''
+                }`}
+                aria-hidden="true"
+              />
+            </button>
+          </div>
+        </form>
+
+        {/* Secondary direct action into Build & Fix */}
+        <div className="mt-4 flex flex-col items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
+          <button
+            type="button"
+            disabled={isLoading}
+            onClick={() => {
+              setValidationError(null);
+              void onLaunchSampleUnified();
+            }}
+            className="inline-flex items-center gap-1.5 font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer disabled:opacity-50"
+          >
+            <Layers className="w-3.5 h-3.5" aria-hidden="true" />
+            <span>Open Interactive Demo Business in Step 2 (Build &amp; Fix)</span>
+            <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+          </button>
+          <span className="hidden sm:inline text-slate-500 dark:text-slate-400">
+            Tip: prepend our domain before any URL (e.g.{' '}
+            <code className="font-mono text-slate-700 dark:text-slate-300">
+              /github.com/vercel/ai
+            </code>
+            )
+          </span>
+        </div>
+
+        {/* Collapsible Advanced Options & CSV Import */}
+        {showAdvanced && (
+          <div className="mt-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 text-left space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={forceRefresh}
@@ -319,209 +376,112 @@ export default function UrlAnalyzerLanding({
                   onChange={(e) => setForceRefresh(e.target.checked)}
                   className="rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-600"
                 />
-                <RefreshCw className="w-3 h-3 text-slate-400" aria-hidden="true" />
-                <span>Bypass server cache (Force live)</span>
+                <RefreshCw className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
+                <span>Bypass server cache (Force fresh scan)</span>
               </label>
-            </div>
-          </form>
-        ) : inputMode === 'repo' ? (
-          <form
-            onSubmit={handleRepoSubmit}
-            noValidate
-            className="mt-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-2 shadow-sm"
-          >
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-              <label htmlFor="slash-repo-input" className="sr-only">
-                GitHub repository URL or owner/repo
-              </label>
-              <div className="flex-1 flex items-center gap-3 px-3">
-                <GitBranch
-                  className="w-4 h-4 text-slate-400 shrink-0"
-                  aria-hidden="true"
-                />
-                <input
-                  id="slash-repo-input"
-                  type="text"
-                  value={repoInput}
-                  onChange={(e) => {
-                    setRepoInput(e.target.value);
-                    if (validationError) setValidationError(null);
-                  }}
-                  placeholder="vercel/ai or https://github.com/fastapi/fastapi"
-                  disabled={isLoading}
-                  className="w-full py-2.5 text-sm sm:text-base bg-transparent text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none font-mono"
-                />
-              </div>
 
               <button
-                type="submit"
-                disabled={isLoading}
-                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                type="button"
+                onClick={() => setShowCsvForm((prev) => !prev)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
               >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-                    <span>Scanning</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Analyze Repo</span>
-                    <ArrowRight className="w-4 h-4" aria-hidden="true" />
-                  </>
-                )}
+                <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600" aria-hidden="true" />
+                <span>{showCsvForm ? 'Hide Tech CSV Importer' : 'Import Tech Stack CSV'}</span>
               </button>
             </div>
 
-            <div className="px-3 pt-2 pb-1 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
-              <div className="flex flex-wrap items-center gap-2">
-                {parsedRepoPreview ? (
-                  <span>
-                    Target repo:{' '}
-                    <strong className="font-mono text-slate-800 dark:text-slate-200">
-                      {parsedRepoPreview.fullName}
-                    </strong>
-                  </span>
-                ) : (
-                  <>
-                    <span>Quick presets:</span>
-                    {REPO_PRESET_METAS.map((preset, idx) => (
-                      <span key={preset.id} className="inline-flex items-center gap-2">
-                        {idx > 0 && <span aria-hidden="true">·</span>}
-                        <button
-                          type="button"
-                          disabled={isLoading}
-                          onClick={() => {
-                            setValidationError(null);
-                            setRepoInput(preset.fullName);
-                            void onAnalyzeRepo(preset.url, { usePreset: true });
-                          }}
-                          className="font-mono text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
-                        >
-                          {preset.fullName} ({preset.language})
-                        </button>
-                      </span>
-                    ))}
-                  </>
-                )}
-              </div>
+            {showCsvForm && (
+              <form
+                onSubmit={handleCsvSubmit}
+                noValidate
+                className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-3"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    Upload or paste Wappalyzer / BuiltWith CSV rows to generate a stack map.
+                  </p>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCsvDomain('https://gitdiagram.com');
+                        setCsvText(SAMPLE_WAPPALYZER_CSV);
+                        setValidationError(null);
+                      }}
+                      className="px-2.5 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/60 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950/30 cursor-pointer"
+                    >
+                      Load Sample CSV
+                    </button>
+                    <label className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer">
+                      <Upload className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>Upload .csv</span>
+                      <input
+                        type="file"
+                        accept=".csv,text/csv"
+                        onChange={(e) => void handleCsvFileUpload(e)}
+                        className="sr-only"
+                      />
+                    </label>
+                  </div>
+                </div>
 
-              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-slate-600 dark:text-slate-400">
-                <input
-                  type="checkbox"
-                  checked={repoForceRefresh}
-                  disabled={isLoading}
-                  onChange={(e) => setRepoForceRefresh(e.target.checked)}
-                  className="rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-600"
-                />
-                <RefreshCw className="w-3 h-3 text-slate-400" aria-hidden="true" />
-                <span>Bypass server cache (Force live)</span>
-              </label>
-            </div>
-          </form>
-        ) : (
-          <form
-            onSubmit={handleCsvSubmit}
-            noValidate
-            className="mt-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm text-left space-y-3"
-          >
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div>
-                <p className="text-xs font-semibold text-slate-900 dark:text-white">
-                  Import Wappalyzer / BuiltWith Tech CSV
-                </p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Upload or paste exported technology rows (URL, Technology, Categories, Version) to synthesize a full architecture map.
-                </p>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCsvDomain('https://gitdiagram.com');
-                    setCsvText(SAMPLE_WAPPALYZER_CSV);
-                    setValidationError(null);
-                  }}
-                  className="px-2.5 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/60 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950/30 cursor-pointer"
-                >
-                  Load Sample CSV
-                </button>
-                <label className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer">
-                  <Upload className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>Upload .csv</span>
+                <div>
+                  <label
+                    htmlFor="csv-domain-input"
+                    className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1"
+                  >
+                    Target Domain / URL (optional if included in CSV)
+                  </label>
                   <input
-                    type="file"
-                    accept=".csv,text/csv"
-                    onChange={(e) => void handleCsvFileUpload(e)}
-                    className="sr-only"
+                    id="csv-domain-input"
+                    type="text"
+                    value={csvDomain}
+                    onChange={(e) => setCsvDomain(e.target.value)}
+                    placeholder="https://gitdiagram.com"
+                    className="w-full px-3 py-2 text-xs font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
                   />
-                </label>
-              </div>
-            </div>
+                </div>
 
-            <div>
-              <label
-                htmlFor="csv-domain-input"
-                className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1"
-              >
-                Target Domain / URL (optional if included in CSV)
-              </label>
-              <input
-                id="csv-domain-input"
-                type="text"
-                value={csvDomain}
-                onChange={(e) => setCsvDomain(e.target.value)}
-                placeholder="https://gitdiagram.com"
-                className="w-full px-3 py-2 text-xs font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
-              />
-            </div>
+                <div>
+                  <label
+                    htmlFor="csv-payload-textarea"
+                    className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1"
+                  >
+                    CSV Rows
+                  </label>
+                  <textarea
+                    id="csv-payload-textarea"
+                    rows={4}
+                    value={csvText}
+                    onChange={(e) => {
+                      setCsvText(e.target.value);
+                      if (validationError) setValidationError(null);
+                    }}
+                    placeholder={
+                      'URL,Technology,Categories,Version\nhttps://example.com,Next.js,Web frameworks,15'
+                    }
+                    className="w-full px-3 py-2 text-xs font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  />
+                </div>
 
-            <div>
-              <label
-                htmlFor="csv-payload-textarea"
-                className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1"
-              >
-                CSV Rows
-              </label>
-              <textarea
-                id="csv-payload-textarea"
-                rows={5}
-                value={csvText}
-                onChange={(e) => {
-                  setCsvText(e.target.value);
-                  if (validationError) setValidationError(null);
-                }}
-                placeholder={'URL,Technology,Categories,Version\nhttps://example.com,Next.js,Web frameworks,15'}
-                className="w-full px-3 py-2 text-xs font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
-              />
-            </div>
-
-            <div className="flex justify-end">
-              <button
-                type="submit"
-                className="inline-flex items-center gap-2 px-5 py-2 text-xs sm:text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors cursor-pointer"
-              >
-                <span>Build Stack Architecture</span>
-                <ArrowRight className="w-4 h-4" aria-hidden="true" />
-              </button>
-            </div>
-          </form>
-        )}
-
-        {inputMode === 'url' && (
-          <p className="mt-2.5 text-xs text-slate-500 dark:text-slate-400">
-            <span className="font-medium text-slate-700 dark:text-slate-300">Tip:</span>{' '}
-            Prepend this domain before any public URL in your address bar (e.g.{' '}
-            <code className="font-mono text-slate-700 dark:text-slate-300">
-              /github.com/vercel/ai
-            </code>
-            ) for instant diagrams.
-          </p>
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <span>Build Stack Map</span>
+                    <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
         )}
 
         {displayError && (
           <div
             role="alert"
-            className="mt-3 flex items-start gap-2.5 text-left px-4 py-3 rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 text-sm text-red-700 dark:text-red-300"
+            className="mt-4 flex items-start gap-2.5 text-left px-4 py-3 rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 text-sm text-red-700 dark:text-red-300"
           >
             <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
             <span>{displayError}</span>
@@ -534,10 +494,10 @@ export default function UrlAnalyzerLanding({
             className="mt-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 text-left"
           >
             <p className="text-xs font-semibold text-slate-900 dark:text-white mb-4">
-              Running Intelligence Pipeline
+              Building your visual map
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {PIPELINE_STEPS.map((item, idx) => {
+              {PROGRESS_STEPS.map((item, idx) => {
                 const active = pipelineStage === idx + 1;
                 const done = pipelineStage > idx + 1;
                 return (
@@ -556,9 +516,15 @@ export default function UrlAnalyzerLanding({
                         {item.step}. {item.title}
                       </span>
                       {done ? (
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" />
+                        <CheckCircle2
+                          className="w-3.5 h-3.5 text-emerald-600"
+                          aria-hidden="true"
+                        />
                       ) : active ? (
-                        <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" aria-hidden="true" />
+                        <Loader2
+                          className="w-3.5 h-3.5 text-blue-600 animate-spin"
+                          aria-hidden="true"
+                        />
                       ) : null}
                     </div>
                     <p className="text-xs text-slate-600 dark:text-slate-400">
@@ -570,18 +536,24 @@ export default function UrlAnalyzerLanding({
             </div>
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Curated Interactive Examples */}
-      <section className="mt-12 space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
-          <div>
-            <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white">
-              Explore Reference Intelligence Maps
+      {/* Interactive Live Mini-Preview: How Scraps Turn into a Business */}
+      <section
+        aria-label="Interactive Scrap-to-Business preview"
+        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 sm:p-6"
+      >
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-slate-100 dark:border-slate-800">
+          <div className="space-y-1 max-w-2xl">
+            <p className="text-xs font-medium text-blue-600 dark:text-blue-400">
+              How SLASH works in 3 steps
+            </p>
+            <h2 className="font-display text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
+              From scattered prototypes to one unified business app
             </h2>
             <p className="text-sm text-slate-600 dark:text-slate-400">
-              Load an instant multi-view workspace across URLMIND targets, Repo
-              Intelligence scans, or the Unified Graph.
+              Click any zone below to see how SLASH merges your UI, AI engine,
+              database, and billing into a single deployable bundle.
             </p>
           </div>
           <button
@@ -591,14 +563,92 @@ export default function UrlAnalyzerLanding({
               setValidationError(null);
               void onLaunchSampleUnified();
             }}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-500 disabled:opacity-60 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold text-white bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-500 disabled:opacity-60 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
-            <Network className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Launch Unified Graph Demo (Docs + Repo)</span>
+            <span>Load Demo Business</span>
+            <ArrowRight className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="mt-5 grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+          <div
+            role="tablist"
+            aria-label="Business OS zone preview"
+            className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-3"
+          >
+            {PREVIEW_STAGES.map((stage) => {
+              const Icon = stage.icon;
+              const isSelected = stage.id === activeStage.id;
+              return (
+                <button
+                  key={stage.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={isSelected}
+                  onClick={() => setSelectedPreviewZone(stage.id)}
+                  className={`text-left p-4 rounded-xl border transition-colors cursor-pointer ${
+                    isSelected
+                      ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/30'
+                      : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-900 dark:text-white">
+                    <span>{stage.label}</span>
+                    <Icon
+                      className={`w-4 h-4 ${
+                        isSelected
+                          ? 'text-blue-600 dark:text-blue-400'
+                          : 'text-slate-400'
+                      }`}
+                      aria-hidden="true"
+                    />
+                  </div>
+                  <p className="mt-1.5 font-mono text-xs text-slate-700 dark:text-slate-300">
+                    {stage.scrapName}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    {stage.statusText}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="lg:col-span-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-5 flex flex-col justify-between gap-4">
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                Generated Business Output · {activeStage.label}
+              </p>
+              <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                {activeStage.scrapName}
+              </p>
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                {activeStage.bridgeOutput}
+              </p>
+            </div>
+
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-1.5 text-xs font-mono text-slate-600 dark:text-slate-400">
+              <p>src/gateway/routes.json</p>
+              <p>src/app/api/gateway/[...slug]/route.ts</p>
+              <p>docker-compose.yml + .env.bridge.example</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Instant Starter Examples */}
+      <section className="space-y-4">
+        <div>
+          <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white">
+            Or start from a sample link or repository
+          </h2>
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            Click any card below to inspect a single website, API, or GitHub
+            repository in detail.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {SHOWCASE_PRESET_METAS.map((preset) => (
             <button
               key={preset.id}
@@ -606,12 +656,12 @@ export default function UrlAnalyzerLanding({
               disabled={isLoading}
               onClick={() => {
                 setValidationError(null);
-                setUrlInput(preset.url);
+                setSmartInput(preset.url);
                 void onAnalyze(preset.url, { usePreset: true });
               }}
               className="group text-left p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-blue-500 dark:hover:border-blue-500 rounded-xl transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 disabled:opacity-60"
             >
-              <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
                 <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
                   {preset.categoryLabel}
                 </span>
@@ -620,14 +670,12 @@ export default function UrlAnalyzerLanding({
               <p className="font-mono text-sm font-semibold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 truncate">
                 {preset.label}
               </p>
-              <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
                 {preset.tagline}
               </p>
             </button>
           ))}
-        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {REPO_PRESET_METAS.map((preset) => (
             <button
               key={preset.id}
@@ -635,15 +683,14 @@ export default function UrlAnalyzerLanding({
               disabled={isLoading}
               onClick={() => {
                 setValidationError(null);
-                setRepoInput(preset.fullName);
+                setSmartInput(preset.fullName);
                 void onAnalyzeRepo(preset.url, { usePreset: true });
               }}
               className="group text-left p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-emerald-500 dark:hover:border-emerald-500 rounded-xl transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 disabled:opacity-60"
             >
               <div className="flex items-center justify-between gap-2 mb-1.5">
-                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                  <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>Repo Intelligence · {preset.language}</span>
+                <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                  GitHub Repo · {preset.language}
                 </span>
                 <GitBranch className="w-4 h-4 text-slate-500 dark:text-slate-400" />
               </div>
@@ -657,43 +704,6 @@ export default function UrlAnalyzerLanding({
           ))}
         </div>
       </section>
-
-      {/* Pipeline & Epistemic Transparency */}
-      <section className="mt-12 grid grid-cols-1 lg:grid-cols-3 gap-6 border-t border-slate-200 dark:border-slate-800 pt-10">
-        <div>
-          <h3 className="font-display text-sm font-semibold text-slate-900 dark:text-white">
-            01. URLmind & Repo Intelligence Engines
-          </h3>
-          <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-            Routes websites, web apps, OpenAPI specs, docs, media/social links,
-            and deep GitHub repository file trees + manifests through modular adapters.
-          </p>
-        </div>
-        <div>
-          <h3 className="font-display text-sm font-semibold text-slate-900 dark:text-white">
-            02. Unified Graph & Human-Approved Copilot
-          </h3>
-          <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-            Connect multiple web URLs and repositories into one interactive graph.
-            Copilot action proposals stay pending until explicitly approved.
-          </p>
-        </div>
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
-            <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" aria-hidden="true" />
-            <span>Detected vs. Inferred Integrity</span>
-          </div>
-          <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-            Public URLs and repositories cannot reveal runtime secrets or private
-            databases. Every node and cross-link is strictly labeled{' '}
-            <strong className="text-slate-800 dark:text-slate-200">Detected</strong>{' '}
-            (observable evidence) or{' '}
-            <strong className="text-slate-800 dark:text-slate-200">Inferred</strong>{' '}
-            (architectural reasoning).
-          </p>
-        </div>
-      </section>
     </div>
   );
 }
-
