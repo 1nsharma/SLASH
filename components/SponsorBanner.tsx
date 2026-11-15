@@ -180,7 +180,7 @@ export default function SponsorBanner() {
                   id="sponsor-modal-title"
                   className="font-display text-base font-bold text-slate-900 dark:text-white"
                 >
-                  Sponsor URLMIND or Configure Ecosystem Links
+                  Sponsor SLASH or Configure Ecosystem Links
                 </h3>
                 <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
                   All placement clicks route through <code className="font-mono">/out/[campaign]</code>{' '}

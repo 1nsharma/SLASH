@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Check,
   CheckCircle2,
+  ChevronDown,
   Code2,
   Copy,
   Download,
@@ -56,6 +57,9 @@ export default function ComposerStudio({
   );
   const [bundleTab, setBundleTab] = useState<'files' | 'checks' | 'preview' | 'deploy'>(
     'files',
+  );
+  const [showPlanDetails, setShowPlanDetails] = useState(
+    () => !project.virtualBundle,
   );
 
   const plan: CompositionPlan | undefined = project.compositionPlan;
@@ -127,6 +131,7 @@ export default function ComposerStudio({
 
       setSelectedFilePath(data.bundle.files[0]?.path ?? null);
       setBundleTab('files');
+      setShowPlanDetails(false);
       onUpdateProject(
         {
           ...project,
@@ -217,52 +222,72 @@ export default function ComposerStudio({
               Package {project.title} into a Run-Ready App
             </h1>
           </div>
-          {onBackToBuild && (
-            <button
-              type="button"
-              onClick={onBackToBuild}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer shrink-0 whitespace-nowrap"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
-              <span>Back to Step 2: Build &amp; Fix</span>
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {bundle && (
+              <button
+                type="button"
+                aria-expanded={showPlanDetails}
+                onClick={() => setShowPlanDetails((prev) => !prev)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer whitespace-nowrap"
+              >
+                <span>{showPlanDetails ? 'Hide Goal & Plan' : 'Goal & Plan Details'}</span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 transition-transform ${
+                    showPlanDetails ? 'rotate-180' : ''
+                  }`}
+                  aria-hidden="true"
+                />
+              </button>
+            )}
+            {onBackToBuild && (
+              <button
+                type="button"
+                onClick={onBackToBuild}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer shrink-0 whitespace-nowrap"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Back to Step 2: Build &amp; Fix</span>
+              </button>
+            )}
+          </div>
         </div>
 
-        <form onSubmit={handleAnalyzePlan} className="space-y-3">
-          <label
-            htmlFor="composer-goal-prompt"
-            className="block text-xs font-medium text-slate-600 dark:text-slate-300"
-          >
-            Describe the unified application you want SLASH to architect
-          </label>
-          <textarea
-            id="composer-goal-prompt"
-            rows={2}
-            value={goalPrompt}
-            onChange={(e) => setGoalPrompt(e.target.value)}
-            placeholder="e.g., Combine repository A's frontend, repository B's backend, OpenAPI billing endpoints, and Prisma PostgreSQL schema into one SaaS app..."
-            className="w-full px-3.5 py-2.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600"
-          />
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              Stage 1 analyzes compatibility, auth collisions &amp; SPDX licenses
-              before any code is synthesized.
-            </span>
-            <button
-              type="submit"
-              disabled={isAnalyzing || !goalPrompt.trim()}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg cursor-pointer"
+        {(!bundle || showPlanDetails) && (
+          <form onSubmit={handleAnalyzePlan} className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <label
+              htmlFor="composer-goal-prompt"
+              className="block text-xs font-medium text-slate-600 dark:text-slate-300"
             >
-              {isAnalyzing ? (
-                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <Sparkles className="w-4 h-4" aria-hidden="true" />
-              )}
-              <span>Analyze Compatibility &amp; Plan</span>
-            </button>
-          </div>
-        </form>
+              Describe the unified application you want SLASH to architect
+            </label>
+            <textarea
+              id="composer-goal-prompt"
+              rows={2}
+              value={goalPrompt}
+              onChange={(e) => setGoalPrompt(e.target.value)}
+              placeholder="e.g., Combine repository A's frontend, repository B's backend, OpenAPI billing endpoints, and Prisma PostgreSQL schema into one SaaS app..."
+              className="w-full px-3.5 py-2.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+            />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                Stage 1 analyzes compatibility, auth collisions &amp; SPDX licenses
+                before any code is synthesized.
+              </span>
+              <button
+                type="submit"
+                disabled={isAnalyzing || !goalPrompt.trim()}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg cursor-pointer"
+              >
+                {isAnalyzing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Sparkles className="w-4 h-4" aria-hidden="true" />
+                )}
+                <span>Analyze Compatibility &amp; Plan</span>
+              </button>
+            </div>
+          </form>
+        )}
 
         {errorMsg && (
           <div
@@ -276,7 +301,7 @@ export default function ComposerStudio({
       </section>
 
       {/* Stage 2: Plan, Component Mapping, Conflicts & Explicit Approval Gate */}
-      {plan && (
+      {plan && (!bundle || showPlanDetails) && (
         <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-5">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
             <div>
@@ -403,7 +428,7 @@ export default function ComposerStudio({
                         {m.targetDirectory}
                       </p>
                     </div>
-                    <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 shrink-0">
+                    <span className="font-mono text-[11px] text-blue-600 dark:text-blue-400 shrink-0">
                       {m.assignedRole}
                     </span>
                   </li>
@@ -532,10 +557,10 @@ export default function ComposerStudio({
                     >
                       <span className="truncate">{file.path}</span>
                       <span
-                        className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${
+                        className={`text-[10px] shrink-0 ${
                           isSelected
-                            ? 'bg-blue-500 text-white'
-                            : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                            ? 'text-blue-100'
+                            : 'text-slate-500 dark:text-slate-400'
                         }`}
                       >
                         {file.provenance}

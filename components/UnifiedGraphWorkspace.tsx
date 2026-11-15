@@ -245,6 +245,7 @@ export default function UnifiedGraphWorkspace({
       if (!trimmed) return;
       await onAttachUrl(trimmed);
       setResourceInput('');
+      setConnectorOpen(false);
       return;
     }
 
@@ -253,6 +254,7 @@ export default function UnifiedGraphWorkspace({
       if (!trimmed) return;
       await onAttachRepo(trimmed);
       setResourceInput('');
+      setConnectorOpen(false);
       return;
     }
 
@@ -276,6 +278,7 @@ export default function UnifiedGraphWorkspace({
     });
     setResourceInput('');
     setConnectorPayload('');
+    setConnectorOpen(false);
   };
 
   const handleAskAboutNode = (node: IntelligenceNode) => {
@@ -430,26 +433,15 @@ export default function UnifiedGraphWorkspace({
               />
             </button>
 
-            {focusTab === 'build' ? (
-              <button
-                type="button"
-                onClick={() => onChangeFocusTab('launch')}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg cursor-pointer whitespace-nowrap"
-              >
-                <Rocket className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>Continue to Step 3: Launch</span>
-                <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => onChangeFocusTab('build')}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer whitespace-nowrap"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>Back to Step 2: Build &amp; Fix</span>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => onChangeFocusTab('launch')}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg cursor-pointer whitespace-nowrap"
+            >
+              <Rocket className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Continue to Step 3: Launch</span>
+              <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+            </button>
           </div>
         </div>
 
@@ -698,22 +690,22 @@ export default function UnifiedGraphWorkspace({
       </section>
 
       {/* Compatibility & Safety Banners */}
-      {project.conflicts && project.conflicts.length > 0 && focusTab === 'build' && (
+      {project.conflicts && project.conflicts.length > 0 && (
         <div
           role="status"
-          className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-3 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/30 text-xs text-amber-900 dark:text-amber-200"
+          className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-2.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/30 text-xs text-amber-900 dark:text-amber-200"
         >
           <div className="flex items-start gap-2">
             <AlertTriangle
               className="w-4 h-4 mt-0.5 shrink-0"
               aria-hidden="true"
             />
-            <div>
-              <p className="font-semibold">
-                {project.conflicts.length} Compatibility Check(s) Flagged
-              </p>
-              <p>{project.conflicts.map((c) => c.title).join(' · ')}</p>
-            </div>
+            <p>
+              <span className="font-semibold">
+                {project.conflicts.length} Compatibility Check(s):{' '}
+              </span>
+              {project.conflicts.map((c) => c.title).join(' · ')}
+            </p>
           </div>
           <button
             type="button"
@@ -728,19 +720,18 @@ export default function UnifiedGraphWorkspace({
       {project.truncationWarnings && project.truncationWarnings.length > 0 && (
         <div
           role="status"
-          className="flex items-start gap-2.5 px-4 py-3 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/30 text-xs text-amber-800 dark:text-amber-300"
+          className="flex items-start gap-2 px-4 py-2.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/30 text-xs text-amber-800 dark:text-amber-300"
         >
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
-          <div className="space-y-0.5">
-            <p className="font-semibold">Repository Safety Limits Applied</p>
-            <p>{project.truncationWarnings.join(' ')}</p>
-          </div>
+          <p>
+            <span className="font-semibold">Repository Safety Limits Applied: </span>
+            {project.truncationWarnings.join(' ')}
+          </p>
         </div>
       )}
 
       {/* STEP 2: BUILD & FIX */}
-      {focusTab === 'build' ? (
-        <div className="space-y-4">
+      <div className="space-y-4">
           {/* Sub-view Bar */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div
@@ -976,16 +967,7 @@ export default function UnifiedGraphWorkspace({
               )}
             </div>
           )}
-        </div>
-      ) : (
-        /* STEP 3: LAUNCH */
-        <div className="space-y-4">
-          <ComposerStudio
-            project={project}
-            onUpdateProject={onUpdateProject}
-          />
-        </div>
-      )}
+      </div>
     </div>
   );
 }

@@ -177,9 +177,7 @@ export default function AskUrlChat({
             aria-hidden="true"
           />
           <h2 className="font-display text-base font-semibold text-slate-900 dark:text-white">
-            {unifiedProject || repoReport
-              ? 'SLASH AI Copilot'
-              : 'Ask This URL'}
+            SLASH AI Copilot
           </h2>
         </div>
         <span className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate max-w-md">
