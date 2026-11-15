@@ -56,9 +56,11 @@ export default function HomePage() {
   const [unifiedError, setUnifiedError] = useState<string | null>(null);
   const [isDark, setIsDark] = useState(false);
   const didHandleInitialQueryRef = useRef(false);
+  const unifiedProjectRef = useRef<UnifiedGraphProject | null>(null);
 
   const persistUnifiedProject = useCallback(
     (project: UnifiedGraphProject | null) => {
+      unifiedProjectRef.current = project;
       setUnifiedProject(project);
       try {
         if (project) {
@@ -73,11 +75,7 @@ export default function HomePage() {
     [],
   );
 
-  const upsertReport = useCallback((report: UrlIntelligenceReport) => {
-    setActiveRepoReport(null);
-    setActiveReport(report);
-    setActiveView('map');
-    setSection('analyzer');
+  const saveUrlReportToHistory = useCallback((report: UrlIntelligenceReport) => {
     setHistory((prev) => {
       const filtered = prev.filter(
         (item) =>
@@ -94,26 +92,47 @@ export default function HomePage() {
     });
   }, []);
 
-  const upsertRepoReport = useCallback((report: RepoIntelligenceReport) => {
-    setActiveReport(null);
-    setActiveRepoReport(report);
-    setActiveView('map');
-    setSection('analyzer');
-    setRepoHistory((prev) => {
-      const filtered = prev.filter(
-        (item) =>
-          item.normalizedUrl.replace(/\/+$/, '').toLowerCase() !==
-          report.normalizedUrl.replace(/\/+$/, '').toLowerCase(),
-      );
-      const updated = [report, ...filtered].slice(0, 12);
-      try {
-        localStorage.setItem(STORAGE_REPO_HISTORY_KEY, JSON.stringify(updated));
-      } catch {
-        // Ignore storage error
-      }
-      return updated;
-    });
-  }, []);
+  const saveRepoReportToHistory = useCallback(
+    (report: RepoIntelligenceReport) => {
+      setRepoHistory((prev) => {
+        const filtered = prev.filter(
+          (item) =>
+            item.normalizedUrl.replace(/\/+$/, '').toLowerCase() !==
+            report.normalizedUrl.replace(/\/+$/, '').toLowerCase(),
+        );
+        const updated = [report, ...filtered].slice(0, 12);
+        try {
+          localStorage.setItem(STORAGE_REPO_HISTORY_KEY, JSON.stringify(updated));
+        } catch {
+          // Ignore storage error
+        }
+        return updated;
+      });
+    },
+    [],
+  );
+
+  const upsertReport = useCallback(
+    (report: UrlIntelligenceReport) => {
+      setActiveRepoReport(null);
+      setActiveReport(report);
+      setActiveView('map');
+      setSection('analyzer');
+      saveUrlReportToHistory(report);
+    },
+    [saveUrlReportToHistory],
+  );
+
+  const upsertRepoReport = useCallback(
+    (report: RepoIntelligenceReport) => {
+      setActiveReport(null);
+      setActiveRepoReport(report);
+      setActiveView('map');
+      setSection('analyzer');
+      saveRepoReportToHistory(report);
+    },
+    [saveRepoReportToHistory],
+  );
 
   const fetchOrPresetUrlReport = useCallback(
     async (
@@ -180,99 +199,6 @@ export default function HomePage() {
     [],
   );
 
-  const handleAnalyze = useCallback(
-    async (
-      url: string,
-      options: { usePreset?: boolean; forceRefresh?: boolean } = {},
-    ) => {
-      setErrorMessage(null);
-      setIsLoading(true);
-      setPipelineStage(1);
-
-      if (options.usePreset && !options.forceRefresh) {
-        const clean = url.trim().replace(/\/+$/, '').toLowerCase();
-        const matched = Object.entries(SHOWCASE_PRESETS).find(
-          ([k]) => k.replace(/\/+$/, '').toLowerCase() === clean,
-        )?.[1];
-        if (matched) {
-          setPipelineStage(2);
-          setTimeout(() => {
-            setPipelineStage(3);
-            upsertReport(matched);
-            setIsLoading(false);
-            setPipelineStage(0);
-          }, 200);
-          return;
-        }
-      }
-
-      const stageTimer1 = setTimeout(() => setPipelineStage(2), 600);
-      const stageTimer2 = setTimeout(() => setPipelineStage(3), 1800);
-
-      try {
-        const report = await fetchOrPresetUrlReport(url, options);
-        upsertReport(report);
-      } catch (err) {
-        setErrorMessage(
-          err instanceof Error
-            ? err.message
-            : 'Could not analyze that URL. Please check the address and try again.',
-        );
-      } finally {
-        clearTimeout(stageTimer1);
-        clearTimeout(stageTimer2);
-        setIsLoading(false);
-        setPipelineStage(0);
-      }
-    },
-    [fetchOrPresetUrlReport, upsertReport],
-  );
-
-  const handleAnalyzeRepo = useCallback(
-    async (
-      repoUrl: string,
-      options: { usePreset?: boolean; forceRefresh?: boolean } = {},
-    ) => {
-      setErrorMessage(null);
-      setIsLoading(true);
-      setPipelineStage(1);
-
-      if (options.usePreset && !options.forceRefresh) {
-        const matched = findRepoPreset(repoUrl);
-        if (matched) {
-          setPipelineStage(2);
-          setTimeout(() => {
-            setPipelineStage(3);
-            upsertRepoReport(matched);
-            setIsLoading(false);
-            setPipelineStage(0);
-          }, 200);
-          return;
-        }
-      }
-
-      const stageTimer1 = setTimeout(() => setPipelineStage(2), 600);
-      const stageTimer2 = setTimeout(() => setPipelineStage(3), 1800);
-
-      try {
-        const report = await fetchOrPresetRepoReport(repoUrl, options);
-        upsertRepoReport(report);
-      } catch (err) {
-        setErrorMessage(
-          err instanceof Error
-            ? err.message
-            : 'Could not inspect that GitHub repository. Verify owner/repo and try again.',
-        );
-      } finally {
-        clearTimeout(stageTimer1);
-        clearTimeout(stageTimer2);
-        setIsLoading(false);
-        setPipelineStage(0);
-      }
-    },
-    [fetchOrPresetRepoReport, upsertRepoReport],
-  );
-
   const rebuildUnifiedGraph = useCallback(
     async (
       nextUrls: UrlIntelligenceReport[],
@@ -313,11 +239,14 @@ export default function HomePage() {
             project?: UnifiedGraphProject;
           };
           if (data.project?.aiSynthesis) {
-            setUnifiedProject((current) =>
-              current && current.sources.length === data.project!.sources.length
-                ? { ...current, aiSynthesis: data.project!.aiSynthesis }
-                : current,
-            );
+            setUnifiedProject((current) => {
+              const updated =
+                current && current.sources.length === data.project!.sources.length
+                  ? { ...current, aiSynthesis: data.project!.aiSynthesis }
+                  : current;
+              unifiedProjectRef.current = updated;
+              return updated;
+            });
           }
         })
         .catch(() => {
@@ -325,6 +254,181 @@ export default function HomePage() {
         });
     },
     [persistUnifiedProject],
+  );
+
+  const attachUrlReportAndOpenBuild = useCallback(
+    async (report: UrlIntelligenceReport) => {
+      saveUrlReportToHistory(report);
+      setUnifiedError(null);
+      setUnifiedFocus('build');
+      setSection('unified');
+      const current = unifiedProjectRef.current;
+      const existingUrls = current?.urlReports ?? [];
+      const existingRepos = current?.repoReports ?? [];
+      const existingConnectors = current?.connectorArtifacts ?? [];
+      const dedupedUrls = [
+        ...existingUrls.filter(
+          (u) =>
+            u.normalizedUrl.replace(/\/+$/, '').toLowerCase() !==
+            report.normalizedUrl.replace(/\/+$/, '').toLowerCase(),
+        ),
+        report,
+      ];
+      await rebuildUnifiedGraph(
+        dedupedUrls,
+        existingRepos,
+        existingConnectors,
+        current?.auditLog,
+      );
+    },
+    [rebuildUnifiedGraph, saveUrlReportToHistory],
+  );
+
+  const attachRepoReportAndOpenBuild = useCallback(
+    async (report: RepoIntelligenceReport) => {
+      saveRepoReportToHistory(report);
+      setUnifiedError(null);
+      setUnifiedFocus('build');
+      setSection('unified');
+      const current = unifiedProjectRef.current;
+      const existingUrls = current?.urlReports ?? [];
+      const existingRepos = current?.repoReports ?? [];
+      const existingConnectors = current?.connectorArtifacts ?? [];
+      const dedupedRepos = [
+        ...existingRepos.filter(
+          (r) =>
+            r.normalizedUrl.replace(/\/+$/, '').toLowerCase() !==
+            report.normalizedUrl.replace(/\/+$/, '').toLowerCase(),
+        ),
+        report,
+      ];
+      await rebuildUnifiedGraph(
+        existingUrls,
+        dedupedRepos,
+        existingConnectors,
+        current?.auditLog,
+      );
+    },
+    [rebuildUnifiedGraph, saveRepoReportToHistory],
+  );
+
+  const handleAnalyze = useCallback(
+    async (
+      url: string,
+      options: {
+        usePreset?: boolean;
+        forceRefresh?: boolean;
+        stayInSingleView?: boolean;
+      } = {},
+    ) => {
+      setErrorMessage(null);
+      setIsLoading(true);
+      setPipelineStage(1);
+
+      const routeReport = async (report: UrlIntelligenceReport) => {
+        if (options.stayInSingleView) {
+          upsertReport(report);
+        } else {
+          await attachUrlReportAndOpenBuild(report);
+        }
+      };
+
+      if (options.usePreset && !options.forceRefresh) {
+        const clean = url.trim().replace(/\/+$/, '').toLowerCase();
+        const matched = Object.entries(SHOWCASE_PRESETS).find(
+          ([k]) => k.replace(/\/+$/, '').toLowerCase() === clean,
+        )?.[1];
+        if (matched) {
+          setPipelineStage(2);
+          setTimeout(() => {
+            setPipelineStage(3);
+            void routeReport(matched).finally(() => {
+              setIsLoading(false);
+              setPipelineStage(0);
+            });
+          }, 200);
+          return;
+        }
+      }
+
+      const stageTimer1 = setTimeout(() => setPipelineStage(2), 600);
+      const stageTimer2 = setTimeout(() => setPipelineStage(3), 1800);
+
+      try {
+        const report = await fetchOrPresetUrlReport(url, options);
+        await routeReport(report);
+      } catch (err) {
+        setErrorMessage(
+          err instanceof Error
+            ? err.message
+            : 'Could not analyze that URL. Please check the address and try again.',
+        );
+      } finally {
+        clearTimeout(stageTimer1);
+        clearTimeout(stageTimer2);
+        setIsLoading(false);
+        setPipelineStage(0);
+      }
+    },
+    [attachUrlReportAndOpenBuild, fetchOrPresetUrlReport, upsertReport],
+  );
+
+  const handleAnalyzeRepo = useCallback(
+    async (
+      repoUrl: string,
+      options: {
+        usePreset?: boolean;
+        forceRefresh?: boolean;
+        stayInSingleView?: boolean;
+      } = {},
+    ) => {
+      setErrorMessage(null);
+      setIsLoading(true);
+      setPipelineStage(1);
+
+      const routeRepoReport = async (report: RepoIntelligenceReport) => {
+        if (options.stayInSingleView) {
+          upsertRepoReport(report);
+        } else {
+          await attachRepoReportAndOpenBuild(report);
+        }
+      };
+
+      if (options.usePreset && !options.forceRefresh) {
+        const matched = findRepoPreset(repoUrl);
+        if (matched) {
+          setPipelineStage(2);
+          setTimeout(() => {
+            setPipelineStage(3);
+            void routeRepoReport(matched).finally(() => {
+              setIsLoading(false);
+              setPipelineStage(0);
+            });
+          }, 200);
+          return;
+        }
+      }
+
+      const stageTimer1 = setTimeout(() => setPipelineStage(2), 600);
+      const stageTimer2 = setTimeout(() => setPipelineStage(3), 1800);
+
+      try {
+        const report = await fetchOrPresetRepoReport(repoUrl, options);
+        await routeRepoReport(report);
+      } catch (err) {
+        setErrorMessage(
+          err instanceof Error
+            ? err.message
+            : 'Could not inspect that GitHub repository. Verify owner/repo and try again.',
+        );
+      } finally {
+        clearTimeout(stageTimer1);
+        clearTimeout(stageTimer2);
+        setIsLoading(false);
+        setPipelineStage(0);
+      }
+    },
+    [attachRepoReportAndOpenBuild, fetchOrPresetRepoReport, upsertRepoReport],
   );
 
   const handleSendUrlToUnified = useCallback(
@@ -732,6 +836,7 @@ export default function HomePage() {
         if (rawUnified) {
           const parsedUnified = JSON.parse(rawUnified) as UnifiedGraphProject;
           if (parsedUnified && Array.isArray(parsedUnified.nodes)) {
+            unifiedProjectRef.current = parsedUnified;
             setUnifiedProject(parsedUnified);
           }
         }
@@ -923,6 +1028,7 @@ export default function HomePage() {
                 void handleAnalyzeRepo(activeRepoReport.normalizedUrl, {
                   usePreset: false,
                   forceRefresh: true,
+                  stayInSingleView: true,
                 })
               }
               isRefreshing={isLoading}
@@ -948,6 +1054,7 @@ export default function HomePage() {
                 void handleAnalyze(activeReport.normalizedUrl, {
                   usePreset: false,
                   forceRefresh: true,
+                  stayInSingleView: true,
                 })
               }
               isRefreshing={isLoading}
@@ -958,7 +1065,7 @@ export default function HomePage() {
             <UrlAnalyzerLanding
               onAnalyze={handleAnalyze}
               onAnalyzeRepo={handleAnalyzeRepo}
-              onImportCsv={(report) => upsertReport(report)}
+              onImportCsv={(report) => void attachUrlReportAndOpenBuild(report)}
               onLaunchSampleUnified={handleLaunchSampleUnified}
               isLoading={isLoading}
               pipelineStage={pipelineStage}
@@ -983,6 +1090,27 @@ export default function HomePage() {
               handleAddBusinessBlockToUnified(blockId, 'user')
             }
             onRemoveSource={handleRemoveSourceFromUnified}
+            onInspectSource={(sourceId) => {
+              const foundRepo =
+                unifiedProject?.repoReports.find((r) => r.id === sourceId) ??
+                repoHistory.find((r) => r.id === sourceId);
+              if (foundRepo) {
+                setActiveReport(null);
+                setActiveRepoReport(foundRepo);
+                setActiveView('map');
+                setSection('analyzer');
+                return;
+              }
+              const foundUrl =
+                unifiedProject?.urlReports.find((u) => u.id === sourceId) ??
+                history.find((u) => u.id === sourceId);
+              if (foundUrl) {
+                setActiveRepoReport(null);
+                setActiveReport(foundUrl);
+                setActiveView('map');
+                setSection('analyzer');
+              }
+            }}
             onApproveProposal={handleApproveProposal}
             isDark={isDark}
             isBusy={unifiedBusy}

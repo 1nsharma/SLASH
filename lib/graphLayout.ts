@@ -1,4 +1,6 @@
+import { classifyNodeBusinessZone } from './business/zones';
 import type {
+  BusinessZone,
   ComparisonDiff,
   IntelligenceEdge,
   IntelligenceNode,
@@ -11,6 +13,16 @@ export interface PositionedNode {
   x: number;
   y: number;
   node: IntelligenceNode;
+}
+
+export interface SwimlaneLayoutResult {
+  positioned: Array<PositionedNode & { zone: BusinessZone }>;
+  columns: Array<{
+    zone: BusinessZone;
+    x: number;
+    nodeCount: number;
+  }>;
+  emptyZones: BusinessZone[];
 }
 
 const LAYER_ORDER: NodeLayer[] = [
@@ -76,6 +88,67 @@ export function computeLayeredGraphPositions(
   }
 
   return positioned;
+}
+
+const BUSINESS_ZONE_ORDER: BusinessZone[] = [
+  'frontend',
+  'brain',
+  'data',
+  'operations',
+];
+
+export function computeBusinessZoneSwimlanePositions(
+  nodes: IntelligenceNode[],
+  edges: IntelligenceEdge[],
+): SwimlaneLayoutResult {
+  const buckets = new Map<BusinessZone, IntelligenceNode[]>();
+  for (const zone of BUSINESS_ZONE_ORDER) {
+    buckets.set(zone, []);
+  }
+
+  for (const node of nodes) {
+    const zone = node.businessZone ?? classifyNodeBusinessZone(node);
+    buckets.get(zone)!.push(node);
+  }
+
+  const degree = new Map<string, number>();
+  for (const edge of edges) {
+    degree.set(edge.source, (degree.get(edge.source) ?? 0) + 1);
+    degree.set(edge.target, (degree.get(edge.target) ?? 0) + 1);
+  }
+
+  const colSpacing = 264;
+  const rowSpacing = 148;
+  const startX = 24;
+  const headerOffsetY = 92;
+
+  const positioned: Array<PositionedNode & { zone: BusinessZone }> = [];
+  const columns: Array<{ zone: BusinessZone; x: number; nodeCount: number }> = [];
+  const emptyZones: BusinessZone[] = [];
+
+  BUSINESS_ZONE_ORDER.forEach((zone, colIndex) => {
+    const group = buckets.get(zone) ?? [];
+    const x = startX + colIndex * colSpacing;
+    columns.push({ zone, x, nodeCount: group.length });
+
+    if (group.length === 0) {
+      emptyZones.push(zone);
+      return;
+    }
+
+    group.sort((a, b) => (degree.get(b.id) ?? 0) - (degree.get(a.id) ?? 0));
+    group.forEach((node, idx) => {
+      positioned.push({
+        id: node.id,
+        x,
+        y: headerOffsetY + idx * rowSpacing,
+        node,
+        zone,
+      });
+    });
+  });
+
+  return { positioned, columns, emptyZones };
 }
 
 function sanitizeMermaidId(raw: string): string {

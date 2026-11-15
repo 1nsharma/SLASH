@@ -245,25 +245,49 @@ export async function analyzeRepoPipeline(
   }
 
   const defaultBranch = repoMeta.default_branch || 'main';
-  const treeRes = await safeFetchPublic(
-    `${apiBase}/git/trees/${encodeURIComponent(defaultBranch)}?recursive=1`,
-    { headers },
-    { timeoutMs: 12000, maxRedirects: 3, maxBytes: 2 * 1024 * 1024 },
-  );
+  let treeJson: {
+    truncated?: boolean;
+    tree?: Array<{ path: string; type: 'blob' | 'tree'; mode?: string }>;
+  } = { truncated: false, tree: [] };
+  let fellBackToTopLevelTree = false;
 
-  const treeJson = treeRes.ok
-    ? ((await treeRes.json()) as {
-        truncated?: boolean;
-        tree?: Array<{ path: string; type: 'blob' | 'tree'; mode?: string }>;
-      })
-    : { truncated: false, tree: [] };
+  try {
+    const treeRes = await safeFetchPublic(
+      `${apiBase}/git/trees/${encodeURIComponent(defaultBranch)}?recursive=1`,
+      { headers },
+      { timeoutMs: 12000, maxRedirects: 3, maxBytes: 6 * 1024 * 1024 },
+    );
+    if (treeRes.ok) {
+      treeJson = (await treeRes.json()) as typeof treeJson;
+    }
+  } catch {
+    fellBackToTopLevelTree = true;
+    try {
+      const rootTreeRes = await safeFetchPublic(
+        `${apiBase}/git/trees/${encodeURIComponent(defaultBranch)}`,
+        { headers },
+        { timeoutMs: 10000, maxRedirects: 3, maxBytes: 512_000 },
+      );
+      if (rootTreeRes.ok) {
+        treeJson = (await rootTreeRes.json()) as typeof treeJson;
+      }
+    } catch {
+      // Leave empty tree fallback
+    }
+  }
 
   const rawTree = treeJson.tree || [];
   const { safeEntries, skippedSymlinks, skippedUnsafePaths } =
     filterSafeRepoTreeEntries(rawTree);
   const hitEntryCap = safeEntries.length > REPO_LIMITS.maxTreeEntries;
-  const truncated = Boolean(treeJson.truncated) || hitEntryCap;
+  const truncated =
+    fellBackToTopLevelTree || Boolean(treeJson.truncated) || hitEntryCap;
   const truncationReasons: string[] = [];
+  if (fellBackToTopLevelTree) {
+    truncationReasons.push(
+      'Recursive git tree exceeded response cap; inspected top-level repository tree.',
+    );
+  }
   if (treeJson.truncated) {
     truncationReasons.push('GitHub recursive tree response was truncated due to repository size.');
   }

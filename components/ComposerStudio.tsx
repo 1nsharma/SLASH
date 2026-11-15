@@ -3,8 +3,11 @@
 import { useState } from 'react';
 import {
   AlertTriangle,
+  ArrowLeft,
+  Check,
   CheckCircle2,
   Code2,
+  Copy,
   Download,
   Eye,
   FileCode2,
@@ -12,6 +15,7 @@ import {
   Play,
   ShieldCheck,
   Sparkles,
+  Terminal,
   Wrench,
 } from 'lucide-react';
 import { approveCompositionPlan } from '@/lib/composer/engine';
@@ -27,6 +31,7 @@ interface ComposerStudioProps {
     next: UnifiedGraphProject,
     auditAction?: { action: string; target: string },
   ) => void;
+  onBackToBuild?: () => void;
 }
 
 const DEFAULT_GOAL =
@@ -35,6 +40,7 @@ const DEFAULT_GOAL =
 export default function ComposerStudio({
   project,
   onUpdateProject,
+  onBackToBuild,
 }: ComposerStudioProps) {
   const [goalPrompt, setGoalPrompt] = useState(
     project.compositionPlan?.goalPrompt || DEFAULT_GOAL,
@@ -42,12 +48,13 @@ export default function ComposerStudio({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [copiedEnv, setCopiedEnv] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [resolutions, setResolutions] = useState<Record<string, string>>({});
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(
     project.virtualBundle?.files[0]?.path ?? null,
   );
-  const [bundleTab, setBundleTab] = useState<'files' | 'checks' | 'preview'>(
+  const [bundleTab, setBundleTab] = useState<'files' | 'checks' | 'preview' | 'deploy'>(
     'files',
   );
 
@@ -182,22 +189,44 @@ export default function ComposerStudio({
   const activeFile =
     bundle?.files.find((f) => f.path === selectedFilePath) || bundle?.files[0];
 
+  const envBridgeFile =
+    bundle?.files.find((f) => f.path === '.env.bridge.example') ||
+    bundle?.files.find((f) => f.path === '.env.example');
+
+  const handleCopyEnv = async () => {
+    if (!envBridgeFile) return;
+    try {
+      await navigator.clipboard.writeText(envBridgeFile.content);
+      setCopiedEnv(true);
+      setTimeout(() => setCopiedEnv(false), 1800);
+    } catch {
+      // Ignore clipboard failures
+    }
+  };
+
   return (
     <div className="space-y-5">
-      {/* Stage 1: Natural Language Goal & Compatibility Analyzer */}
+      {/* Stage 1: Dedicated Launch & Export Studio Header */}
       <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <p className="text-xs font-medium text-blue-600 dark:text-blue-400">
-              AI Project Composer · 4-Stage Human-Approved Synthesis
+              Step 3 of 3 · Launch &amp; Export Studio ({project.sources.length} connected source(s))
             </p>
-            <h2 className="font-display text-lg font-bold text-slate-900 dark:text-white">
-              Compose Connected Sources into a Unified Application
-            </h2>
+            <h1 className="font-display text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
+              Package {project.title} into a Run-Ready App
+            </h1>
           </div>
-          <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
-            {project.sources.length} source(s) attached
-          </span>
+          {onBackToBuild && (
+            <button
+              type="button"
+              onClick={onBackToBuild}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer shrink-0 whitespace-nowrap"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Back to Step 2: Build &amp; Fix</span>
+            </button>
+          )}
         </div>
 
         <form onSubmit={handleAnalyzePlan} className="space-y-3">
@@ -445,6 +474,18 @@ export default function ComposerStudio({
                 </button>
                 <button
                   type="button"
+                  onClick={() => setBundleTab('deploy')}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md cursor-pointer ${
+                    bundleTab === 'deploy'
+                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  <Terminal className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>.env &amp; Deploy</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => setBundleTab('preview')}
                   className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md cursor-pointer ${
                     bundleTab === 'preview'
@@ -453,7 +494,7 @@ export default function ComposerStudio({
                   }`}
                 >
                   <Eye className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>Sandboxed Preview</span>
+                  <span>Preview</span>
                 </button>
               </div>
 
@@ -552,6 +593,52 @@ export default function ComposerStudio({
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {bundleTab === 'deploy' && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="border border-slate-200 dark:border-slate-800 rounded-lg p-4 bg-slate-50 dark:bg-slate-950 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-slate-900 dark:text-white">
+                    Environment Bridge ({envBridgeFile?.path ?? '.env.example'})
+                  </p>
+                  {envBridgeFile && (
+                    <button
+                      type="button"
+                      onClick={() => void handleCopyEnv()}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium border border-slate-200 dark:border-slate-700 rounded-md text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-900 cursor-pointer"
+                    >
+                      {copiedEnv ? (
+                        <Check className="w-3 h-3 text-emerald-600" aria-hidden="true" />
+                      ) : (
+                        <Copy className="w-3 h-3" aria-hidden="true" />
+                      )}
+                      <span>{copiedEnv ? 'Copied' : 'Copy .env'}</span>
+                    </button>
+                  )}
+                </div>
+                <pre className="p-3 rounded-lg bg-slate-900 text-slate-100 text-[11px] font-mono overflow-auto max-h-56 leading-relaxed">
+                  <code>{envBridgeFile?.content ?? '# No env template generated'}</code>
+                </pre>
+              </div>
+
+              <div className="border border-slate-200 dark:border-slate-800 rounded-lg p-4 bg-slate-50 dark:bg-slate-950 space-y-3">
+                <p className="text-xs font-semibold text-slate-900 dark:text-white">
+                  Local &amp; Docker Launch Instructions
+                </p>
+                <ol className="list-decimal pl-4 space-y-2 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                  <li>
+                    Download <strong>{bundle.projectName}.zip</strong> and unzip into a clean directory.
+                  </li>
+                  <li>
+                    Copy <code className="font-mono text-slate-800 dark:text-slate-200">.env.bridge.example</code> to <code className="font-mono text-slate-800 dark:text-slate-200">.env.local</code> and add your own provider keys.
+                  </li>
+                  <li>
+                    Run locally with <code className="font-mono text-slate-800 dark:text-slate-200">npm install &amp;&amp; npm run dev</code> or launch full stack with <code className="font-mono text-slate-800 dark:text-slate-200">docker compose up --build</code>.
+                  </li>
+                </ol>
+              </div>
             </div>
           )}
 

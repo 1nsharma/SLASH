@@ -12,6 +12,7 @@ import {
   Code2,
   Database,
   Download,
+  ExternalLink,
   FileCode2,
   FileJson,
   FileText,
@@ -38,6 +39,7 @@ import {
 import { unifiedGraphToReportAdapter } from '@/lib/graph/unifier';
 import type { PublicGitHubAuthStatus } from '@/lib/security/tokenVault';
 import type {
+  BusinessZone,
   ConnectorSourceKind,
   CopilotActionProposal,
   IntelligenceNode,
@@ -90,6 +92,7 @@ interface UnifiedGraphWorkspaceProps {
   onLaunchSampleUnified: () => Promise<void>;
   onAddBusinessBlock: (blockId: string) => Promise<void> | void;
   onRemoveSource: (sourceId: string) => void;
+  onInspectSource?: (sourceId: string) => void;
   onApproveProposal: (proposal: CopilotActionProposal) => Promise<void>;
   isDark: boolean;
   isBusy: boolean;
@@ -110,6 +113,7 @@ export default function UnifiedGraphWorkspace({
   onLaunchSampleUnified,
   onAddBusinessBlock,
   onRemoveSource,
+  onInspectSource,
   onApproveProposal,
   isDark,
   isBusy,
@@ -369,6 +373,19 @@ export default function UnifiedGraphWorkspace({
     );
   }
 
+  // Dedicated Step 3: Launch & Export Studio entry point
+  if (focusTab === 'launch') {
+    return (
+      <div className="max-w-[1440px] mx-auto px-4 sm:px-6 py-6">
+        <ComposerStudio
+          project={project}
+          onUpdateProject={onUpdateProject}
+          onBackToBuild={() => onChangeFocusTab('build')}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-[1440px] mx-auto px-4 sm:px-6 py-6 space-y-5">
       {/* Streamlined Workspace Header Bar */}
@@ -377,9 +394,7 @@ export default function UnifiedGraphWorkspace({
           <div className="space-y-1 min-w-0">
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
               <span className="font-medium text-blue-600 dark:text-blue-400">
-                {focusTab === 'launch'
-                  ? 'Step 3 of 3 · Launch Project'
-                  : 'Step 2 of 3 · Build & Fix'}
+                Step 2 of 3 · Build &amp; Fix
               </span>
               <span aria-hidden="true">·</span>
               <span className="font-mono tabular-nums">
@@ -809,6 +824,18 @@ export default function UnifiedGraphWorkspace({
             <ArchitectureMap
               report={adaptedReport}
               onAskAboutNode={handleAskAboutNode}
+              onQuickAddZone={(zone) => {
+                if (zone === 'operations') {
+                  void onAddBusinessBlock('clerk-auth');
+                  return;
+                }
+                if (zone === 'data') {
+                  void onAddBusinessBlock('shared-memory-pgvector');
+                  return;
+                }
+                setConnectorOpen(true);
+                setResourceKind(zone === 'frontend' ? 'url' : 'repo');
+              }}
               isDark={isDark}
             />
           )}
@@ -859,14 +886,26 @@ export default function UnifiedGraphWorkspace({
                             {src.authScheme ? ` · ${src.authScheme}` : ''}
                           </p>
                         </div>
-                        <button
-                          type="button"
-                          aria-label={`Remove ${src.label} from unified graph`}
-                          onClick={() => onRemoveSource(src.id)}
-                          className="p-1.5 text-slate-400 hover:text-red-600 rounded cursor-pointer shrink-0"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {onInspectSource && src.kind !== 'connector' && (
+                            <button
+                              type="button"
+                              aria-label={`Inspect deep report for ${src.label}`}
+                              onClick={() => onInspectSource(src.id)}
+                              className="p-1.5 text-slate-400 hover:text-blue-600 rounded cursor-pointer"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            aria-label={`Remove ${src.label} from unified graph`}
+                            onClick={() => onRemoveSource(src.id)}
+                            className="p-1.5 text-slate-400 hover:text-red-600 rounded cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>

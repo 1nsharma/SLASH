@@ -24,6 +24,7 @@ import {
 } from './csvImporter';
 import { parseJinaMarkdown } from './crawler';
 import {
+  computeBusinessZoneSwimlanePositions,
   computeComparisonDiff,
   computeLayeredGraphPositions,
   generateMarkdownReport,
@@ -940,6 +941,26 @@ test('detectSmartInputKind routes GitHub repos vs domain paths vs invalid URLs c
 
   const localBlocked = detectSmartInputKind('http://localhost:3000');
   assert.equal(localBlocked.kind, 'invalid');
+});
+
+test('computeBusinessZoneSwimlanePositions groups nodes into 4 Business Zone swimlanes and reports empty zones', () => {
+  const sampleReport = SHOWCASE_PRESETS['https://nextjs.org/docs'];
+  const result = computeBusinessZoneSwimlanePositions(
+    sampleReport.nodes,
+    sampleReport.edges,
+  );
+  assert.equal(result.columns.length, 4);
+  assert.deepEqual(
+    result.columns.map((c) => c.zone),
+    ['frontend', 'brain', 'data', 'operations'],
+  );
+  assert.ok(result.positioned.length === sampleReport.nodes.length);
+  // Every column X coordinate strictly increases left-to-right across the 4 swimlanes
+  assert.ok(result.columns[0].x < result.columns[1].x);
+  assert.ok(result.columns[1].x < result.columns[2].x);
+  assert.ok(result.columns[2].x < result.columns[3].x);
+  // Empty zones (e.g. operations if missing) are surfaced cleanly for '+' placeholder slots
+  assert.ok(Array.isArray(result.emptyZones));
 });
 
 
