@@ -182,3 +182,15 @@ All credentials stay strictly server-side via environment variables and `/api/*`
 ## License
 
 MIT © 2026 [1nsharma](./LICENSE)
+
+
+---
+
+## 💼 Sponsorship, Support & Founder
+
+Maintained by **Amit Sharma (@1nsharma)** from Kanpur, India.
+
+- **Founder Email:** [amitsharma99976@gmail.com](mailto:amitsharma99976@gmail.com)
+- **Direct UPI & Bank Transfer:** 393741171@upi\ • PhonePe / Google Pay / Paytm: 393741171- **GitHub Profile:** [github.com/1nsharma](https://github.com/1nsharma)
+- **Organization Hub:** [github.com/1nsharma-labs](https://github.com/1nsharma-labs)
+- **Support & Bounties:** [polar.sh/1nsharma-labs](https://polar.sh/1nsharma-labs) • [GitHub Sponsors](https://github.com/sponsors/1nsharma)
